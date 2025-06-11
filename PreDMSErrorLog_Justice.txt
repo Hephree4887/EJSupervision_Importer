@@ -1,0 +1,20 @@
+[2025-06-11 16:34:05] CSV file not found: C:/Users/jeff.reichert/OneDrive - Tyler Technologies, Inc/Documents/GitHub/tx_elpaso_7373/Pre-DMS\EJ_Justice_Selects.csv
+[2025-06-11 16:34:05] Traceback (most recent call last):
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\01_JusticeDB_Import.py", line 370, in main
+    raise e
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\01_JusticeDB_Import.py", line 348, in main
+    import_joins(config, config['log_file'])
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\01_JusticeDB_Import.py", line 162, in import_joins
+    raise FileNotFoundError(error_msg)
+FileNotFoundError: CSV file not found: C:/Users/jeff.reichert/OneDrive - Tyler Technologies, Inc/Documents/GitHub/tx_elpaso_7373/Pre-DMS\EJ_Justice_Selects.csv
+
+[2025-06-11 16:37:45] CSV file not found: C:/Users/jeff.reichert/OneDrive - Tyler Technologies, Inc/Documents/GitHub/tx_elpaso_7373/Pre-DMS\EJ_Justice_Selects.csv
+[2025-06-11 16:37:45] Traceback (most recent call last):
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\01_JusticeDB_Import.py", line 370, in main
+    raise e
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\01_JusticeDB_Import.py", line 348, in main
+    import_joins(config, config['log_file'])
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\01_JusticeDB_Import.py", line 162, in import_joins
+    raise FileNotFoundError(error_msg)
+FileNotFoundError: CSV file not found: C:/Users/jeff.reichert/OneDrive - Tyler Technologies, Inc/Documents/GitHub/tx_elpaso_7373/Pre-DMS\EJ_Justice_Selects.csv
+

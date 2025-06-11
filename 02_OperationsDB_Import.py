@@ -60,7 +60,6 @@ def parse_args():
         help="Enable verbose logging."
     )
     return parser.parse_args()
-
 def validate_environment():
     """Validate required environment variables and their values."""
     required_vars = {
@@ -96,12 +95,11 @@ def validate_environment():
     csv_dir = os.environ.get('EJ_CSV_DIR')
     if not os.path.exists(csv_dir):
         raise EnvironmentError(f"EJ_CSV_DIR path does not exist: {csv_dir}")
-
 def load_config(config_file=None):
     """Load configuration from JSON file if provided, otherwise use defaults."""
     config = {
         "include_empty_tables": False,
-        "csv_filename": "EJ_Operations_Selects.csv",
+        "csv_filename": "EJ_Operations_Selects_ALL.csv",
         "log_filename": DEFAULT_LOG_FILE,
         "skip_pk_creation": False,
         "sql_timeout": 300,  # seconds
@@ -117,14 +115,12 @@ def load_config(config_file=None):
             logger.error(f"Error loading config file: {e}")
     
     return config
-
 def gather_document_ids(conn, config):
     """Gather list of DocumentIDs that are in scope for supervision."""
     logger.info("Gathering list of DocumentIDs that are in Scope for Supervision.")
     gather_documents_sql = load_sql('operations/gather_documentids.sql', DB_NAME)
     run_sql_script(conn, 'gather_documentids', gather_documents_sql, timeout=config['sql_timeout'])
     logger.info("Document IDs gathered successfully.")
-
 def prepare_drop_and_select(conn, config):
     """Prepare SQL statements for dropping and selecting data."""
     logger.info("Gathering list of Operations tables with SQL Commands to be migrated.")
@@ -135,7 +131,6 @@ def prepare_drop_and_select(conn, config):
         additional_sql, 
         timeout=config['sql_timeout']
     )
-
 def import_joins(config, log_file):
     """Import JOIN statements from CSV to build selection queries."""
     logger.info("Importing JOINS from Operations Selects CSV")
@@ -178,14 +173,12 @@ def import_joins(config, log_file):
     
     logger.info(f"Successfully imported {len(df)} JOIN definitions from {csv_path}")
     return engine
-
 def update_joins_in_tables(conn, config):
     """Update the TablesToConvert_Operations table with JOINs."""
     logger.info("Updating JOINS in TablesToConvert_Operations List")
     update_joins_sql = load_sql('operations/update_joins_operations.sql', DB_NAME)
     run_sql_script(conn, 'update_joins_Operations', update_joins_sql, timeout=config['sql_timeout'])
     logger.info("Updating JOINS for Operations tables is complete.")
-
 def execute_table_operations(conn, config, log_file):
     """Execute DROP and SELECT INTO operations for all tables."""
     logger.info("Executing table operations (DROP/SELECT)")
@@ -232,7 +225,6 @@ def execute_table_operations(conn, config, log_file):
     
     cursor.close()
     logger.info("All Drop_IfExists and Select_Into statements executed for the Operations Database")
-
 def create_primary_keys(conn, config, log_file):
     """Create primary keys and NOT NULL constraints."""
     if config['skip_pk_creation']:
@@ -283,7 +275,6 @@ def create_primary_keys(conn, config, log_file):
     
     cursor.close()
     logger.info("All Primary Key/NOT NULL statements executed FOR THE Operations DATABASE.")
-
 def show_completion_message():
     """Show a message box indicating completion and asking to continue."""
     root = tk.Tk()

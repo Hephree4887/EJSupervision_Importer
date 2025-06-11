@@ -120,14 +120,32 @@ class App(tk.Tk):
         self.output_text.insert(tk.END, f"Running {path}...\n")
         self.output_text.see(tk.END)
         try:
-            result = subprocess.run([
-                sys.executable,
-                path
-            ], capture_output=True, text=True)
-            if result.stdout:
-                self.output_text.insert(tk.END, result.stdout)
-            if result.stderr:
-                self.output_text.insert(tk.END, result.stderr)
+            # Use Popen instead of run to capture output in real-time
+            process = subprocess.Popen(
+                [sys.executable, path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True
+            )
+            
+            # Update GUI with output in real-time
+            while True:
+                output = process.stdout.readline()
+                if output == '' and process.poll() is not None:
+                    break
+                if output:
+                    self.output_text.insert(tk.END, output)
+                    self.output_text.see(tk.END)
+                    self.update()  # Update the GUI
+                    
+            return_code = process.poll()
+            if return_code != 0:
+                self.output_text.insert(tk.END, f"Process exited with return code {return_code}\n")
+
+
+
         except Exception as exc:
             self.output_text.insert(tk.END, f"Error running {path}: {exc}\n")
         self.output_text.insert(tk.END, f"Finished {path}\n\n")

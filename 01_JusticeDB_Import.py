@@ -101,7 +101,7 @@ def load_config(config_file=None):
     """Load configuration from JSON file if provided, otherwise use defaults."""
     config = {
         "include_empty_tables": False,
-        "csv_filename": "EJ_Justice_Selects.csv",
+        "csv_filename": "EJ_Justice_Selects_ALL.csv",
         "log_filename": DEFAULT_LOG_FILE,
         "skip_pk_creation": False,
         "sql_timeout": 300,  # seconds
