@@ -4,6 +4,7 @@ import subprocess
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, filedialog
 import pyodbc
+import re
 
 SCRIPTS = [
     ("Justice DB Import", "01_JusticeDB_Import.py"),
@@ -20,6 +21,7 @@ class App(tk.Tk):
         self.conn_str = None
         self.csv_dir = ""
         self._create_connection_widgets()
+        self.status_labels = {}  # Store status labels
 
     def _create_connection_widgets(self):
         fields = ["Driver", "Server", "Database", "User", "Password"]
@@ -61,18 +63,30 @@ class App(tk.Tk):
 
         self.script_frame = tk.Frame(self)
         start_row = len(self.entries) + 3
-        self.script_frame.grid(row=start_row, column=0, columnspan=2, sticky="nsew")
+        self.script_frame.grid(row=start_row, column=0, columnspan=3, sticky="nsew")
 
-        for idx, (label, path) in enumerate(sorted(SCRIPTS, key=lambda x: x[1])):
+        # Add column headers
+        tk.Label(self.script_frame, text="Script", font=("Arial", 10, "bold")).grid(row=0, column=0, sticky="w", padx=5, pady=2)
+        tk.Label(self.script_frame, text="Action", font=("Arial", 10, "bold")).grid(row=0, column=1, sticky="w", padx=5, pady=2)
+        tk.Label(self.script_frame, text="Current Table", font=("Arial", 10, "bold")).grid(row=0, column=2, sticky="w", padx=5, pady=2)
+
+        for idx, (label, path) in enumerate(sorted(SCRIPTS, key=lambda x: x[1]), 1):
             tk.Label(self.script_frame, text=path).grid(row=idx, column=0, sticky="w", padx=5, pady=2)
             tk.Button(
                 self.script_frame,
                 text="Run",
                 command=lambda p=path: self.run_script(p)
             ).grid(row=idx, column=1, padx=5, pady=2)
+            
+            # Add status label for current table
+            status_var = tk.StringVar(value="Not started")
+            status_lbl = tk.Label(self.script_frame, textvariable=status_var, 
+                                 width=30, anchor="w", bg="#f0f0f0")
+            status_lbl.grid(row=idx, column=2, sticky="w", padx=5, pady=2)
+            self.status_labels[path] = status_var
 
         self.output_text = scrolledtext.ScrolledText(self.script_frame, width=80, height=20)
-        self.output_text.grid(row=len(SCRIPTS), column=0, columnspan=2, pady=(10, 0))
+        self.output_text.grid(row=len(SCRIPTS)+1, column=0, columnspan=3, pady=(10, 0))
 
     def _build_conn_str(self):
         driver = self.entries["driver"].get() or "{ODBC Driver 17 for SQL Server}"
@@ -116,9 +130,14 @@ class App(tk.Tk):
         if not self.conn_str:
             messagebox.showerror("Error", "Please test the connection first")
             return
+            
+        # Reset status label
+        self.status_labels[path].set("Starting...")
+        
         os.environ["INCLUDE_EMPTY_TABLES"] = "1" if self.include_empty_var.get() else "0"
         self.output_text.insert(tk.END, f"Running {path}...\n")
         self.output_text.see(tk.END)
+        
         try:
             # Use Popen instead of run to capture output in real-time
             process = subprocess.Popen(
@@ -130,12 +149,27 @@ class App(tk.Tk):
                 universal_newlines=True
             )
             
+            # Patterns to match table processing notifications
+            drop_pattern = re.compile(r"Drop If Exists:\((\w+)\.([^)]+)\)")
+            select_pattern = re.compile(r"Select INTO:\((\w+)\.([^)]+)\)")
+            
             # Update GUI with output in real-time
             while True:
                 output = process.stdout.readline()
                 if output == '' and process.poll() is not None:
                     break
                 if output:
+                    # Check for table name in output
+                    drop_match = drop_pattern.search(output)
+                    select_match = select_pattern.search(output)
+                    
+                    if drop_match:
+                        db, table = drop_match.groups()
+                        self.status_labels[path].set(f"Dropping: {table}")
+                    elif select_match:
+                        db, table = select_match.groups()
+                        self.status_labels[path].set(f"Creating: {table}")
+                    
                     self.output_text.insert(tk.END, output)
                     self.output_text.see(tk.END)
                     self.update()  # Update the GUI
@@ -143,11 +177,14 @@ class App(tk.Tk):
             return_code = process.poll()
             if return_code != 0:
                 self.output_text.insert(tk.END, f"Process exited with return code {return_code}\n")
-
-
+                self.status_labels[path].set("ERROR")
+            else:
+                self.status_labels[path].set("Completed")
 
         except Exception as exc:
             self.output_text.insert(tk.END, f"Error running {path}: {exc}\n")
+            self.status_labels[path].set("ERROR")
+            
         self.output_text.insert(tk.END, f"Finished {path}\n\n")
         self.output_text.see(tk.END)
 

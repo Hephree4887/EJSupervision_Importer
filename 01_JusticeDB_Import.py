@@ -1,6 +1,7 @@
 import logging
 import time
 import json
+import sys
 import os
 import argparse
 from dotenv import load_dotenv
@@ -129,7 +130,7 @@ def define_supervision_scope(conn, config):
         {'name': 'GatherEventIDs', 'sql': load_sql('justice/gather_eventids.sql', DB_NAME)}
     ]
     
-    for step in tqdm(steps, desc="SQL Script Progress", unit="step"):
+    for step in safe_tqdm(steps, desc="SQL Script Progress", unit="step"):
         run_sql_step(conn, step['name'], step['sql'], timeout=config['sql_timeout'])
         conn.commit()
     
@@ -202,7 +203,7 @@ def execute_table_operations(conn, config, log_file):
     rows = cursor.fetchall()
     columns = [desc[0] for desc in cursor.description]
     
-    for idx, row in enumerate(tqdm(rows, desc="Drop/Select", unit="table"), 1):
+    for idx, row in enumerate(safe_tqdm(rows, desc="Drop/Select", unit="table"), 1):
         row_dict = dict(zip(columns, row))
         drop_sql = row_dict.get('Drop_IfExists')
         select_into_sql = row_dict.get('Select_Into')
@@ -217,14 +218,14 @@ def execute_table_operations(conn, config, log_file):
             continue
         
         if drop_sql and drop_sql.strip():
-            logger.info(f"RowID:{idx} Drop If Exists:(Justice.{full_table_name})")
+            #logger.info(f"RowID:{idx} Drop If Exists:(Justice.{full_table_name})")
             try:
-                cursor.execute(drop_sql, timeout=config['sql_timeout'])
+                cursor.execute(drop_sql)
                 conn.commit()
                 
                 if select_into_sql and select_into_sql.strip():
-                    logger.info(f"RowID:{idx} Select INTO:(Justice.{full_table_name})")
-                    cursor.execute(select_into_sql, timeout=config['sql_timeout'])
+                    #logger.info(f"RowID:{idx} Select INTO:(Justice.{full_table_name})")
+                    cursor.execute(select_into_sql)
                     conn.commit()
             except Exception as e:
                 error_msg = f"Error executing statements for row {idx} (Justice.{full_table_name}): {e}"
@@ -265,7 +266,7 @@ def create_primary_keys(conn, config, log_file):
     rows = cursor.fetchall()
     columns = [desc[0] for desc in cursor.description]
     
-    for idx, row in enumerate(tqdm(rows, desc="PK Creation", unit="table"), 1):
+    for idx, row in enumerate(safe_tqdm(rows, desc="PK Creation", unit="table"), 1):
         row_dict = dict(zip(columns, row))
         createpk_sql = row_dict.get('Script')
         schema_name = row_dict.get('SchemaName')
@@ -274,7 +275,7 @@ def create_primary_keys(conn, config, log_file):
         
         logger.info(f"RowID:{idx} PK Creation:(Justice.{full_table_name})")
         try:
-            cursor.execute(createpk_sql, timeout=config['sql_timeout'])
+            cursor.execute(createpk_sql)
             conn.commit()
         except Exception as e:
             error_msg = f"Error executing PK statements for row {idx} (Justice.{full_table_name}): {e}"
@@ -295,6 +296,21 @@ def show_completion_message():
     )
     root.destroy()
     return proceed
+def safe_tqdm(iterable, **kwargs):
+    """Wrapper for tqdm that falls back to a simple iterator if tqdm fails."""
+    try:
+        # First try with default settings
+        for item in tqdm(iterable, **kwargs):
+            yield item
+    except OSError:
+        # If that fails, try with a safer configuration
+        for item in tqdm(iterable, ascii=True, disable=None, **kwargs):
+            yield item
+    except:
+        # If all tqdm attempts fail, just use the regular iterable
+        print(f"Progress bar disabled: {kwargs.get('desc', 'Processing')}")
+        for item in iterable:
+            yield item
 
 def main():
     try:
