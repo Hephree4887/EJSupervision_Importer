@@ -1,5 +1,7 @@
-from dotenv import load_dotenv
 import os
+from dotenv import load_dotenv
+from typing import Optional  # Add this import
+
 
 # Load environment variables from a .env file if present. This only needs to
 # happen once so we do it at import time before reading any variables.
@@ -10,7 +12,7 @@ MSSQL_TARGET_CONN_STR = os.getenv("MSSQL_TARGET_CONN_STR")
 
 # Utility to pull the database name out of a connection string like
 # "DRIVER=...;SERVER=...;DATABASE=MyDB;UID=user;PWD=pass".
-def _parse_database_name(conn_str: str) -> str | None:
+def _parse_database_name(conn_str: str) -> Optional[str]:
     if not conn_str:
         return None
     for part in conn_str.split(';'):

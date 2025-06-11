@@ -156,8 +156,7 @@ def gather_lob_columns(conn, config, log_file):
         INNER JOIN {DB_NAME}.sys.schemas s ON t.schema_id=s.schema_id
         INNER JOIN {DB_NAME}.sys.columns c ON t.object_id=c.object_id
         WHERE t.[NAME] NOT IN (
-            'SupContact','CaseEvent','TablesToConvert',
-            'TablesToConvert_Financial','TablesToConvert_Operations'
+            'TablesToConvert','TablesToConvert_Financial','TablesToConvert_Operations'
         ) 
         AND (
             TYPE_NAME(c.user_type_id) IN ('text', 'ntext') 

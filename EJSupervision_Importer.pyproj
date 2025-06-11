@@ -4,8 +4,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>45ff897c-c5a2-49a1-bfec-9beb9d736e63</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>
-    </StartupFile>
+    <StartupFile>run_etl.py</StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
@@ -27,6 +26,7 @@
     <Compile Include="01_JusticeDB_Import.py" />
     <Compile Include="02_OperationsDB_Import.py" />
     <Compile Include="03_FinancialDB_Import.py" />
+    <Compile Include="04_LOBColumns.py" />
     <Compile Include="config\settings.py" />
     <Compile Include="config\__init__.py" />
     <Compile Include="db\mssql.py" />
@@ -51,6 +51,7 @@
     <Folder Include="utils\" />
   </ItemGroup>
   <ItemGroup>
+    <Content Include=".env" />
     <Content Include="sql_scripts\financial\create_primarykeys_financial.sql" />
     <Content Include="sql_scripts\financial\gather_drops_and_selects_financial.sql" />
     <Content Include="sql_scripts\financial\gather_feeinstanceids.sql" />
