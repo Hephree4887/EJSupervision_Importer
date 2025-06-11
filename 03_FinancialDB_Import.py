@@ -60,7 +60,6 @@ def parse_args():
         help="Enable verbose logging."
     )
     return parser.parse_args()
-
 def validate_environment():
     """Validate required environment variables and their values."""
     required_vars = {
@@ -96,7 +95,6 @@ def validate_environment():
     csv_dir = os.environ.get('EJ_CSV_DIR')
     if not os.path.exists(csv_dir):
         raise EnvironmentError(f"EJ_CSV_DIR path does not exist: {csv_dir}")
-
 def load_config(config_file=None):
     """Load configuration from JSON file if provided, otherwise use defaults."""
     config = {
@@ -117,14 +115,12 @@ def load_config(config_file=None):
             logger.error(f"Error loading config file: {e}")
     
     return config
-
 def gather_fee_instance_ids(conn, config):
     """Gather list of FeeInstanceIDs that are in scope for supervision."""
     logger.info("Gathering list of FeeInstanceIDs that are in Scope for Supervision.")
     gather_feeinstances_sql = load_sql('financial/gather_feeinstanceids.sql', DB_NAME)
     run_sql_script(conn, 'gather_feeinstanceids', gather_feeinstances_sql, timeout=config['sql_timeout'])
     logger.info("Fee Instance IDs gathered successfully.")
-
 def prepare_drop_and_select(conn, config):
     """Prepare SQL statements for dropping and selecting data."""
     logger.info("Gathering list of Financial tables with SQL Commands to be migrated.")
@@ -135,7 +131,6 @@ def prepare_drop_and_select(conn, config):
         additional_sql, 
         timeout=config['sql_timeout']
     )
-
 def import_joins(config, log_file):
     """Import JOIN statements from CSV to build selection queries."""
     logger.info("Importing JOINS from Financial Selects CSV")
@@ -178,14 +173,12 @@ def import_joins(config, log_file):
     
     logger.info(f"Successfully imported {len(df)} JOIN definitions from {csv_path}")
     return engine
-
 def update_joins_in_tables(conn, config):
     """Update the TablesToConvert_Financial table with JOINs."""
     logger.info("Updating JOINS in TablesToConvert_Financial List")
     update_joins_sql = load_sql('financial/update_joins_financial.sql', DB_NAME)
     run_sql_script(conn, 'update_joins_Financial', update_joins_sql, timeout=config['sql_timeout'])
     logger.info("Updating JOINS for Financial tables is complete.")
-
 def execute_table_operations(conn, config, log_file):
     """Execute DROP and SELECT INTO operations for all tables."""
     logger.info("Executing table operations (DROP/SELECT)")
@@ -193,7 +186,7 @@ def execute_table_operations(conn, config, log_file):
     cursor = conn.cursor()
     cursor.execute(f"""
         SELECT RowID, DatabaseName, SchemaName, TableName, fConvert, ScopeRowCount,
-               Drop_IfExists, CAST(Select_Into AS VARCHAR(MAX)) + Joins AS [Select_Into]
+               Drop_IfExists, CAST(Select_Into AS VARCHAR(MAX)) + CAST(Joins AS VARCHAR(MAX)) AS [Select_Into]
         FROM {DB_NAME}.dbo.TablesToConvert_Financial S
         WHERE fConvert=1
         ORDER BY DatabaseName, SchemaName, TableName
@@ -232,7 +225,6 @@ def execute_table_operations(conn, config, log_file):
     
     cursor.close()
     logger.info("All Drop_IfExists and Select_Into statements executed for the Financial Database")
-
 def create_primary_keys(conn, config, log_file):
     """Create primary keys and NOT NULL constraints."""
     if config['skip_pk_creation']:
@@ -283,7 +275,6 @@ def create_primary_keys(conn, config, log_file):
     
     cursor.close()
     logger.info("All Primary Key/NOT NULL statements executed FOR THE Financial DATABASE.")
-
 def show_completion_message():
     """Show a message box indicating completion and asking to continue."""
     root = tk.Tk()
@@ -296,6 +287,7 @@ def show_completion_message():
     )
     root.destroy()
     return proceed
+
 
 def main():
     try:

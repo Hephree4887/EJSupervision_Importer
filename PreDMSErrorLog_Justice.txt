@@ -18,3 +18,12 @@ FileNotFoundError: CSV file not found: C:/Users/jeff.reichert/OneDrive - Tyler T
     raise FileNotFoundError(error_msg)
 FileNotFoundError: CSV file not found: C:/Users/jeff.reichert/OneDrive - Tyler Technologies, Inc/Documents/GitHub/tx_elpaso_7373/Pre-DMS\EJ_Justice_Selects.csv
 
+[2025-06-11 16:46:11] Traceback (most recent call last):
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\01_JusticeDB_Import.py", line 370, in main
+    raise e
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\01_JusticeDB_Import.py", line 354, in main
+    execute_table_operations(target_conn, config, config['log_file'])
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\01_JusticeDB_Import.py", line 195, in execute_table_operations
+    cursor.execute(f"""
+pyodbc.ProgrammingError: ('42000', '[42000] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]The data types varchar(max) and text are incompatible in the add operator. (402) (SQLExecDirectW)')
+

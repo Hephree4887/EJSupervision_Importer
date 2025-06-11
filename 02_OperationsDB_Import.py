@@ -186,7 +186,7 @@ def execute_table_operations(conn, config, log_file):
     cursor = conn.cursor()
     cursor.execute(f"""
         SELECT RowID, DatabaseName, SchemaName, TableName, fConvert, ScopeRowCount,
-               Drop_IfExists, CAST(Select_Into AS VARCHAR(MAX)) + Joins AS [Select_Into]
+               Drop_IfExists, CAST(Select_Into AS VARCHAR(MAX)) + CAST(Joins AS VARCHAR(MAX)) AS [Select_Into]
         FROM {DB_NAME}.dbo.TablesToConvert_Operations S
         WHERE fConvert=1
         ORDER BY DatabaseName, SchemaName, TableName
