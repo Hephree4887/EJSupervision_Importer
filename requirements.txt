@@ -1,0 +1,7 @@
+pandas
+pyodbc
+SQLAlchemy
+python-dotenv
+tqdm
+botocore
+mysql-connector-python
