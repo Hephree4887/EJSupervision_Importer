@@ -4,13 +4,16 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>45ff897c-c5a2-49a1-bfec-9beb9d736e63</ProjectGuid>
     <ProjectHome>.</ProjectHome>
-    <StartupFile>EJSupervision_Importer.py</StartupFile>
+    <StartupFile>
+    </StartupFile>
     <SearchPath>
     </SearchPath>
     <WorkingDirectory>.</WorkingDirectory>
     <OutputPath>.</OutputPath>
     <Name>EJSupervision_Importer</Name>
     <RootNamespace>EJSupervision_Importer</RootNamespace>
+    <TestFramework>Pytest</TestFramework>
+    <InterpreterId>MSBuild|env|$(MSBuildProjectFullPath)</InterpreterId>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Debug' ">
     <DebugSymbols>true</DebugSymbols>
@@ -29,7 +32,7 @@
     <Compile Include="db\mssql.py" />
     <Compile Include="db\mysql.py" />
     <Compile Include="db\__init__.py" />
-    <Compile Include="EJSupervision_Importer.py" />
+    <Compile Include="run_etl.py" />
     <Compile Include="tests\test_mssql.py" />
     <Compile Include="tests\test_mysql.py" />
     <Compile Include="tests\__init__.py" />
@@ -66,6 +69,17 @@
     <Content Include="sql_scripts\operations\gather_documentids.sql" />
     <Content Include="sql_scripts\operations\gather_drops_and_selects_operations.sql" />
     <Content Include="sql_scripts\operations\update_joins_operations.sql" />
+  </ItemGroup>
+  <ItemGroup>
+    <Interpreter Include="env\">
+      <Id>env</Id>
+      <Version>3.9</Version>
+      <Description>env (Python 3.9 (64-bit))</Description>
+      <InterpreterPath>Scripts\python.exe</InterpreterPath>
+      <WindowsInterpreterPath>Scripts\pythonw.exe</WindowsInterpreterPath>
+      <PathEnvironmentVariable>PYTHONPATH</PathEnvironmentVariable>
+      <Architecture>X64</Architecture>
+    </Interpreter>
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in
