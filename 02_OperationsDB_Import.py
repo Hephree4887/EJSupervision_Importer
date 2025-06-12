@@ -195,6 +195,9 @@ def execute_table_operations(conn, config, log_file):
     """)
     rows = cursor.fetchall()
     columns = [desc[0] for desc in cursor.description]
+
+    successful_tables = 0
+    failed_tables = 0
     
     for idx, row in enumerate(safe_tqdm(rows, desc="Drop/Select", unit="table"), 1):
             try:

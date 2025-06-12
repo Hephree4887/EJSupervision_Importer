@@ -180,48 +180,77 @@ def update_joins_in_tables(conn, config):
     run_sql_script(conn, 'update_joins_Financial', update_joins_sql, timeout=config['sql_timeout'])
     logger.info("Updating JOINS for Financial tables is complete.")
 def execute_table_operations(conn, config, log_file):
-    """Execute DROP and SELECT INTO operations for all tables."""
-    logger.info("Executing table operations (DROP/SELECT)")
+    """Execute DROP and SELECT INTO Financial for all tables."""
+    logger.info("Executing table Financial (DROP/SELECT)")
     
     cursor = conn.cursor()
+        # Use a more robust query with explicit encoding handling
     cursor.execute(f"""
         SELECT RowID, DatabaseName, SchemaName, TableName, fConvert, ScopeRowCount,
-               Drop_IfExists, CAST(Select_Into AS VARCHAR(MAX)) + CAST(Joins AS VARCHAR(MAX)) AS [Select_Into]
+                CAST(Drop_IfExists AS NVARCHAR(MAX)) AS Drop_IfExists, 
+                CAST(CAST(Select_Into AS NVARCHAR(MAX)) + CAST(ISNULL(Joins, N'') AS NVARCHAR(MAX)) AS NVARCHAR(MAX)) AS [Select_Into]
         FROM {DB_NAME}.dbo.TablesToConvert_Financial S
         WHERE fConvert=1
         ORDER BY DatabaseName, SchemaName, TableName
     """)
     rows = cursor.fetchall()
     columns = [desc[0] for desc in cursor.description]
+
+    successful_tables = 0
+    failed_tables = 0
     
     for idx, row in enumerate(safe_tqdm(rows, desc="Drop/Select", unit="table"), 1):
-        row_dict = dict(zip(columns, row))
-        drop_sql = sanitize_sql(row_dict.get('Drop_IfExists'))
-        select_into_sql = sanitize_sql(row_dict.get('Select_Into'))
-        table_name = row_dict.get('TableName')
-        schema_name = row_dict.get('SchemaName')
-        scope_row_count = row_dict.get('ScopeRowCount')
-        full_table_name = f"{schema_name}.{table_name}"
-        
-        # Skip empty tables unless configured to include them
-        if not config['include_empty_tables'] and (scope_row_count is None or int(scope_row_count) <= 0):
-            logger.info(f"Skipping Select INTO for {full_table_name}: scope_row_count is {scope_row_count}")
-            continue
-        
-        if drop_sql and drop_sql.strip():
-            logger.info(f"RowID:{idx} Drop If Exists:(Financial.{full_table_name})")
             try:
-                cursor.execute(drop_sql)
-                conn.commit()
+                row_dict = dict(zip(columns, row))
                 
-                if select_into_sql and select_into_sql.strip():
-                    logger.info(f"RowID:{idx} Select INTO:(Financial.{full_table_name})")
-                    cursor.execute(select_into_sql)
-                    conn.commit()
-            except Exception as e:
-                error_msg = f"Error executing statements for row {idx} (Financial.{full_table_name}): {e}"
+                # Enhanced sanitization
+                drop_sql = sanitize_sql(row_dict.get('Drop_IfExists'))
+                select_into_sql = sanitize_sql(row_dict.get('Select_Into'))
+                
+                table_name = row_dict.get('TableName')
+                schema_name = row_dict.get('SchemaName')
+                scope_row_count = row_dict.get('ScopeRowCount')
+                full_table_name = f"{schema_name}.{table_name}"
+                
+                # Skip if sanitization completely failed
+                if not drop_sql or not select_into_sql:
+                    error_msg = f"Skipping row {idx} ({full_table_name}): SQL sanitization failed completely"
+                    logger.error(error_msg)
+                    log_exception_to_file(error_msg, log_file)
+                    failed_tables += 1
+                    continue
+                
+                # Skip empty tables unless configured to include them
+                if not config['include_empty_tables'] and (scope_row_count is None or int(scope_row_count) <= 0):
+                    logger.info(f"Skipping Select INTO for {full_table_name}: scope_row_count is {scope_row_count}")
+                    continue
+                
+                # Execute with individual error handling
+                if drop_sql.strip():
+                    logger.info(f"RowID:{idx} Drop If Exists:(Financial.{full_table_name})")
+                    try:
+                        cursor.execute(drop_sql)
+                        conn.commit()
+                        
+                        if select_into_sql.strip():
+                            logger.info(f"RowID:{idx} Select INTO:(Financial.{full_table_name})")
+                            cursor.execute(select_into_sql)
+                            conn.commit()
+                            successful_tables += 1
+                            
+                    except Exception as sql_error:
+                        error_msg = f"SQL execution error for row {idx} ({full_table_name}): {str(sql_error)}"
+                        logger.error(error_msg)
+                        log_exception_to_file(error_msg, log_file)
+                        failed_tables += 1
+                        # Continue with next table instead of stopping
+                        
+            except Exception as row_error:
+                error_msg = f"Row processing error for row {idx}: {str(row_error)}"
                 logger.error(error_msg)
                 log_exception_to_file(error_msg, log_file)
+                failed_tables += 1
+                continue
     
     cursor.close()
     logger.info("All Drop_IfExists and Select_Into statements executed for the Financial Database")

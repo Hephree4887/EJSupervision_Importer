@@ -159,10 +159,6 @@ class App(tk.Tk):
             parts.append(f"UID={user}")
         if password:
             parts.append(f"PWD={password}")
-    
-        # Add Unicode support for SQL Server
-        parts.append("CHARSET=UTF8")
-        parts.append("autocommit=True")
         return ";".join(parts)    
     def test_connection(self):
         conn_str = self._build_conn_str()
