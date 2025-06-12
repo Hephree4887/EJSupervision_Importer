@@ -239,7 +239,6 @@ def execute_table_operations(conn, config, log_file):
                         if select_into_sql and select_into_sql.strip():
                             logger.info(f"RowID:{idx} Select INTO:(Justice.{full_table_name})")
                             try:
-                                # Execute in smaller chunks if necessary
                                 cursor.execute(select_into_sql)
                                 conn.commit()
                             except Exception as sql_e:
@@ -328,6 +327,52 @@ def show_completion_message():
     )
     root.destroy()
     return proceed
+def sanitize_sql(sql_text):
+    """
+    Sanitize SQL statements to avoid encoding issues.
+    """
+    if sql_text is None:
+        return None
+    
+    try:
+        # Step 1: Convert to Unicode if it isn't already
+        if not isinstance(sql_text, str):
+            sql_text = str(sql_text)
+        
+        # Step 2: Remove or replace problematic control characters
+        # Replace common problematic chars (0x00-0x1F except tabs and newlines)
+        chars_to_replace = {
+            '\x00': '', '\x01': '', '\x02': '', '\x03': '', '\x04': '',
+            '\x05': '', '\x06': '', '\x07': '', '\x08': '', '\x0B': '',
+            '\x0C': '', '\x0E': '', '\x0F': '', '\x10': '', '\x11': '',
+            '\x12': '', '\x13': '', '\x14': '', '\x15': '', '\x16': '',
+            '\x17': '', '\x18': '', '\x19': '', '\x1A': '', '\x1B': '',
+            '\x1C': '', '\x1D': '', '\x1E': '', '\x1F': '',
+            # Also replace other known problematic characters
+            '\x7F': '', '\x8F': '', '\x90': '', '\x9D': ''
+        }
+        
+        for char, replacement in chars_to_replace.items():
+            sql_text = sql_text.replace(char, replacement)
+        
+        # Step 3: Normalize Unicode characters
+        import unicodedata
+        sql_text = unicodedata.normalize('NFC', sql_text)
+        
+        # Step 4: Validate the text can be encoded properly
+        sql_text.encode('utf-8')
+        
+        return sql_text
+    
+    except Exception as e:
+        logger.warning(f"SQL sanitization error: {str(e)}")
+        # If sanitization fails, attempt a more aggressive approach
+        try:
+            # Encode to ASCII, ignoring errors
+            return sql_text.encode('ascii', errors='ignore').decode('ascii')
+        except:
+            logger.error("Failed to sanitize SQL even with fallback method")
+            return None
 def safe_tqdm(iterable, **kwargs):
     """Wrapper for tqdm that falls back to a simple iterator if tqdm fails."""
     try:
@@ -343,6 +388,7 @@ def safe_tqdm(iterable, **kwargs):
         print(f"Progress bar disabled: {kwargs.get('desc', 'Processing')}")
         for item in iterable:
             yield item
+
 
 def main():
     try:
