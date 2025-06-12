@@ -196,8 +196,8 @@ def execute_table_operations(conn, config, log_file):
     
     for idx, row in enumerate(safe_tqdm(rows, desc="Drop/Select", unit="table"), 1):
         row_dict = dict(zip(columns, row))
-        drop_sql = row_dict.get('Drop_IfExists')
-        select_into_sql = row_dict.get('Select_Into')
+        drop_sql = sanitize_sql(row_dict.get('Drop_IfExists'))
+        select_into_sql = sanitize_sql(row_dict.get('Select_Into'))
         table_name = row_dict.get('TableName')
         schema_name = row_dict.get('SchemaName')
         scope_row_count = row_dict.get('ScopeRowCount')
@@ -225,6 +225,46 @@ def execute_table_operations(conn, config, log_file):
     
     cursor.close()
     logger.info("All Drop_IfExists and Select_Into statements executed for the Financial Database")
+def sanitize_sql(sql_text):
+    """Enhanced SQL sanitization with better encoding handling."""
+    if sql_text is None:
+        return None
+    
+    try:
+        # Ensure we're working with a proper string
+        if isinstance(sql_text, bytes):
+            # Try UTF-8 first, then fall back to latin-1 which can decode any byte sequence
+            try:
+                sql_text = sql_text.decode('utf-8')
+            except UnicodeDecodeError:
+                sql_text = sql_text.decode('latin-1', errors='replace')
+        
+        # Convert to string if it's not already
+        if not isinstance(sql_text, str):
+            sql_text = str(sql_text)
+        
+        # Remove problematic control characters more aggressively
+        import re
+        # Remove all control characters except tabs, newlines, and carriage returns
+        sql_text = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]', '', sql_text)
+        
+        # Normalize Unicode
+        import unicodedata
+        sql_text = unicodedata.normalize('NFKC', sql_text)
+        
+        return sql_text
+        
+    except Exception as e:
+        logger.warning(f"SQL sanitization failed: {str(e)}")
+        # Last resort: convert to ASCII, replacing problematic characters
+        try:
+            if isinstance(sql_text, bytes):
+                return sql_text.decode('ascii', errors='replace')
+            else:
+                return str(sql_text).encode('ascii', errors='replace').decode('ascii')
+        except:
+            logger.error("Complete sanitization failure")
+            return ""
 def create_primary_keys(conn, config, log_file):
     """Create primary keys and NOT NULL constraints."""
     if config['skip_pk_creation']:

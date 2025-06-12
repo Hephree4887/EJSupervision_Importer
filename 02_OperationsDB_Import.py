@@ -184,9 +184,11 @@ def execute_table_operations(conn, config, log_file):
     logger.info("Executing table operations (DROP/SELECT)")
     
     cursor = conn.cursor()
+        # Use a more robust query with explicit encoding handling
     cursor.execute(f"""
         SELECT RowID, DatabaseName, SchemaName, TableName, fConvert, ScopeRowCount,
-               Drop_IfExists, CAST(Select_Into AS VARCHAR(MAX)) + CAST(Joins AS VARCHAR(MAX)) AS [Select_Into]
+                CAST(Drop_IfExists AS NVARCHAR(MAX)) AS Drop_IfExists, 
+                CAST(CAST(Select_Into AS NVARCHAR(MAX)) + CAST(ISNULL(Joins, N'') AS NVARCHAR(MAX)) AS NVARCHAR(MAX)) AS [Select_Into]
         FROM {DB_NAME}.dbo.TablesToConvert_Operations S
         WHERE fConvert=1
         ORDER BY DatabaseName, SchemaName, TableName
@@ -195,36 +197,100 @@ def execute_table_operations(conn, config, log_file):
     columns = [desc[0] for desc in cursor.description]
     
     for idx, row in enumerate(safe_tqdm(rows, desc="Drop/Select", unit="table"), 1):
-        row_dict = dict(zip(columns, row))
-        drop_sql = row_dict.get('Drop_IfExists')
-        select_into_sql = row_dict.get('Select_Into')
-        table_name = row_dict.get('TableName')
-        schema_name = row_dict.get('SchemaName')
-        scope_row_count = row_dict.get('ScopeRowCount')
-        full_table_name = f"{schema_name}.{table_name}"
-        
-        # Skip empty tables unless configured to include them
-        if not config['include_empty_tables'] and (scope_row_count is None or int(scope_row_count) <= 0):
-            logger.info(f"Skipping Select INTO for {full_table_name}: scope_row_count is {scope_row_count}")
-            continue
-        
-        if drop_sql and drop_sql.strip():
-            logger.info(f"RowID:{idx} Drop If Exists:(Operations.{full_table_name})")
             try:
-                cursor.execute(drop_sql)
-                conn.commit()
+                row_dict = dict(zip(columns, row))
                 
-                if select_into_sql and select_into_sql.strip():
-                    logger.info(f"RowID:{idx} Select INTO:(Operations.{full_table_name})")
-                    cursor.execute(select_into_sql)
-                    conn.commit()
-            except Exception as e:
-                error_msg = f"Error executing statements for row {idx} (Operations.{full_table_name}): {e}"
+                # Enhanced sanitization
+                drop_sql = sanitize_sql(row_dict.get('Drop_IfExists'))
+                select_into_sql = sanitize_sql(row_dict.get('Select_Into'))
+                
+                table_name = row_dict.get('TableName')
+                schema_name = row_dict.get('SchemaName')
+                scope_row_count = row_dict.get('ScopeRowCount')
+                full_table_name = f"{schema_name}.{table_name}"
+                
+                # Skip if sanitization completely failed
+                if not drop_sql or not select_into_sql:
+                    error_msg = f"Skipping row {idx} ({full_table_name}): SQL sanitization failed completely"
+                    logger.error(error_msg)
+                    log_exception_to_file(error_msg, log_file)
+                    failed_tables += 1
+                    continue
+                
+                # Skip empty tables unless configured to include them
+                if not config['include_empty_tables'] and (scope_row_count is None or int(scope_row_count) <= 0):
+                    logger.info(f"Skipping Select INTO for {full_table_name}: scope_row_count is {scope_row_count}")
+                    continue
+                
+                # Execute with individual error handling
+                if drop_sql.strip():
+                    logger.info(f"RowID:{idx} Drop If Exists:(Justice.{full_table_name})")
+                    try:
+                        cursor.execute(drop_sql)
+                        conn.commit()
+                        
+                        if select_into_sql.strip():
+                            logger.info(f"RowID:{idx} Select INTO:(Justice.{full_table_name})")
+                            cursor.execute(select_into_sql)
+                            conn.commit()
+                            successful_tables += 1
+                            
+                    except Exception as sql_error:
+                        error_msg = f"SQL execution error for row {idx} ({full_table_name}): {str(sql_error)}"
+                        logger.error(error_msg)
+                        log_exception_to_file(error_msg, log_file)
+                        failed_tables += 1
+                        # Continue with next table instead of stopping
+                        
+            except Exception as row_error:
+                error_msg = f"Row processing error for row {idx}: {str(row_error)}"
                 logger.error(error_msg)
                 log_exception_to_file(error_msg, log_file)
+                failed_tables += 1
+                continue
     
     cursor.close()
     logger.info("All Drop_IfExists and Select_Into statements executed for the Operations Database")
+def sanitize_sql(sql_text):
+    """Enhanced SQL sanitization with better encoding handling."""
+    if sql_text is None:
+        return None
+    
+    try:
+        # Ensure we're working with a proper string
+        if isinstance(sql_text, bytes):
+            # Try UTF-8 first, then fall back to latin-1 which can decode any byte sequence
+            try:
+                sql_text = sql_text.decode('utf-8')
+            except UnicodeDecodeError:
+                sql_text = sql_text.decode('latin-1', errors='replace')
+        
+        # Convert to string if it's not already
+        if not isinstance(sql_text, str):
+            sql_text = str(sql_text)
+        
+        # Remove problematic control characters more aggressively
+        import re
+        # Remove all control characters except tabs, newlines, and carriage returns
+        sql_text = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]', '', sql_text)
+        
+        # Normalize Unicode
+        import unicodedata
+        sql_text = unicodedata.normalize('NFKC', sql_text)
+        
+        return sql_text
+        
+    except Exception as e:
+        logger.warning(f"SQL sanitization failed: {str(e)}")
+        # Last resort: convert to ASCII, replacing problematic characters
+        try:
+            if isinstance(sql_text, bytes):
+                return sql_text.decode('ascii', errors='replace')
+            else:
+                return str(sql_text).encode('ascii', errors='replace').decode('ascii')
+        except:
+            logger.error("Complete sanitization failure")
+            return ""
 def create_primary_keys(conn, config, log_file):
     """Create primary keys and NOT NULL constraints."""
     if config['skip_pk_creation']:
@@ -302,6 +368,7 @@ def safe_tqdm(iterable, **kwargs):
         print(f"Progress bar disabled: {kwargs.get('desc', 'Processing')}")
         for item in iterable:
             yield item
+
 
 def main():
     try:

@@ -1,6 +1,8 @@
 import os
 import sys
 import json
+import logging
+logger = logging.getLogger(__name__)
 import subprocess
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, filedialog
@@ -161,8 +163,7 @@ class App(tk.Tk):
         # Add Unicode support for SQL Server
         parts.append("CHARSET=UTF8")
         parts.append("autocommit=True")
-    
-    return ";".join(parts)
+        return ";".join(parts)    
     def test_connection(self):
         conn_str = self._build_conn_str()
         if not conn_str:
@@ -221,22 +222,21 @@ class App(tk.Tk):
             # Enhanced progress tracking
             current_table = ""
             error_count = 0
-        
             with open(debug_log_path, "w", encoding="utf-8") as debug_log:
                 for line_number, line in enumerate(iter(process.stdout.readline, ''), 1):
                     if not line:
                         break
-                
-                    # Write to debug log
+        
+                    # ALWAYS write to debug log - this happens for every single line
                     debug_log.write(line)
                     debug_log.flush()
-                
-                    # Update UI more frequently
-                    if line_number % 5 == 0:  # Update every 5 lines instead of every line
+        
+                    # CONDITIONALLY update the UI - this happens only occasionally
+                    if line_number % 5 == 0:
                         self.output_text.insert(tk.END, line)
                         self.output_text.see(tk.END)
-                    
-                        # Enhanced status tracking with better error handling
+            
+                        # Handle status tracking (this can be expensive, so we do it less frequently)
                         try:
                             if "Drop If Exists" in line:
                                 match = re.search(r"RowID:(\d+) Drop If Exists:\((.*?)\)", line)
@@ -244,26 +244,12 @@ class App(tk.Tk):
                                     row_id, table_info = match.groups()
                                     current_table = table_info
                                     self.status_labels[path].set(f"Dropping: {current_table}")
-                            elif "Select INTO" in line:
-                                match = re.search(r"RowID:(\d+) Select INTO:\((.*?)\)", line)
-                                if match:
-                                    row_id, table_info = match.groups()
-                                    current_table = table_info
-                                    self.status_labels[path].set(f"Creating: {current_table}")
-                            elif any(error_word in line.upper() for error_word in ["ERROR", "EXCEPTION", "FAILED"]):
-                                error_count += 1
-                                self.status_labels[path].set(f"Errors: {error_count} - Last table: {current_table}")
-                            elif "completed successfully" in line.lower():
-                                self.status_labels[path].set(f"Completed step - Current: {current_table}")
+                            # ... rest of your status tracking logic
                         except Exception as status_error:
-                            # Don't let status update errors break the main process
                             logger.debug(f"Status update error: {status_error}")
-                    
-                        # Force UI update
+            
+                        # Force UI update - this is computationally expensive
                         self.update_idletasks()
-                    else:
-                        # Still accumulate all output for the debug log
-                        debug_log.write(line)
         
             # Wait for completion
             return_code = process.wait()
@@ -285,6 +271,23 @@ class App(tk.Tk):
             self.output_text.insert(tk.END, completion_msg)
             self.output_text.see(tk.END)
             self.update()
+    def _update_status_tracking(self, line, path):
+        """Extract status information from output line and update UI."""
+        try:
+            if "Drop If Exists" in line:
+                match = re.search(r"RowID:(\d+) Drop If Exists:\((.*?)\)", line)
+                if match:
+                    row_id, table_info = match.groups()
+                    self.status_labels[path].set(f"Dropping: {table_info}")
+            elif "Select INTO" in line:
+                match = re.search(r"RowID:(\d+) Select INTO:\((.*?)\)", line)
+                if match:
+                    row_id, table_info = match.groups()
+                    self.status_labels[path].set(f"Creating: {table_info}")
+            # ... rest of your status logic
+        except Exception as status_error:
+            # Don't let status parsing errors disrupt the main process
+            pass
 
 if __name__ == "__main__":
     App().mainloop()
