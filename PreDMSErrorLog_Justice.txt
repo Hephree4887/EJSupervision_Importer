@@ -1,0 +1,22 @@
+[2025-06-11 18:42:22] Traceback (most recent call last):
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\01_JusticeDB_Import.py", line 386, in main
+    raise e
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\01_JusticeDB_Import.py", line 373, in main
+    create_primary_keys(target_conn, config, config['log_file'])
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\01_JusticeDB_Import.py", line 245, in create_primary_keys
+    run_sql_script(conn, 'create_primarykeys', pk_sql, timeout=config['sql_timeout'])
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\utils\etl_helpers.py", line 106, in run_sql_script
+    cursor.execute(stmt)
+pyodbc.ProgrammingError: ('42S02', "[42S02] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid object name 'ELPaso_TX.dbo.PrimaryKeyScripts'. (208) (SQLExecDirectW)")
+
+[2025-06-12 11:40:40] Traceback (most recent call last):
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\01_JusticeDB_Import.py", line 387, in main
+    raise e
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\01_JusticeDB_Import.py", line 374, in main
+    create_primary_keys(target_conn, config, config['log_file'])
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\01_JusticeDB_Import.py", line 246, in create_primary_keys
+    run_sql_script(conn, 'create_primarykeys', pk_sql, timeout=config['sql_timeout'])
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\utils\etl_helpers.py", line 106, in run_sql_script
+    cursor.execute(stmt)
+pyodbc.ProgrammingError: ('42S02', "[42S02] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid object name 'ELPaso_TX.dbo.PrimaryKeyScripts'. (208) (SQLExecDirectW)")
+

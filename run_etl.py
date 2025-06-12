@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import subprocess
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, filedialog
@@ -13,6 +14,8 @@ SCRIPTS = [
     ("LOB Column Processing", "04_LOBColumns.py"),
 ]
 
+CONFIG_FILE = os.path.join("config", "values.json")
+
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -20,8 +23,46 @@ class App(tk.Tk):
         self.resizable(False, False)
         self.conn_str = None
         self.csv_dir = ""
+        self.config_values = self._load_config()
         self._create_connection_widgets()
         self.status_labels = {}  # Store status labels
+
+    def _load_config(self):
+        """Load configuration from JSON file if it exists"""
+        try:
+            if os.path.exists(CONFIG_FILE):
+                with open(CONFIG_FILE, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"Error loading config: {e}")
+        return {
+            "driver": "",
+            "server": "",
+            "database": "",
+            "user": "",
+            "password": "",
+            "csv_dir": "",
+            "include_empty_tables": False
+        }
+
+    def _save_config(self):
+        """Save current configuration to JSON file"""
+        config = {
+            "driver": self.entries["driver"].get(),
+            "server": self.entries["server"].get(),
+            "database": self.entries["database"].get(),
+            "user": self.entries["user"].get(),
+            "password": self.entries["password"].get(),
+            "csv_dir": self.csv_dir_var.get(),
+            "include_empty_tables": self.include_empty_var.get()
+        }
+        
+        try:
+            os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+            with open(CONFIG_FILE, 'w') as f:
+                json.dump(config, f, indent=2)
+        except Exception as e:
+            print(f"Error saving config: {e}")
 
     def _create_connection_widgets(self):
         fields = ["Driver", "Server", "Database", "User", "Password"]
@@ -32,6 +73,10 @@ class App(tk.Tk):
             ent = tk.Entry(self, width=40)
             if field.lower() == "password":
                 ent.config(show="*")
+            # Pre-populate with config values if available
+            field_key = field.lower()
+            if field_key in self.config_values and self.config_values[field_key]:
+                ent.insert(0, self.config_values[field_key])
             ent.grid(row=i, column=1, padx=5, pady=2)
             self.entries[field.lower()] = ent
 
@@ -39,13 +84,15 @@ class App(tk.Tk):
         lbl = tk.Label(self, text="CSV Directory:")
         lbl.grid(row=row, column=0, sticky="e", padx=5, pady=2)
         self.csv_dir_var = tk.StringVar()
+        if "csv_dir" in self.config_values:
+            self.csv_dir_var.set(self.config_values["csv_dir"])
         ent = tk.Entry(self, textvariable=self.csv_dir_var, width=40)
         ent.grid(row=row, column=1, padx=5, pady=2)
         browse_btn = tk.Button(self, text="Browse", command=self._browse_csv_dir)
         browse_btn.grid(row=row, column=2, padx=5, pady=2)
 
         # checkbox to include empty tables
-        self.include_empty_var = tk.BooleanVar(value=False)
+        self.include_empty_var = tk.BooleanVar(value=self.config_values.get("include_empty_tables", False))
         chk = tk.Checkbutton(self, text="Include empty tables", variable=self.include_empty_var)
         chk.grid(row=row+1, column=0, columnspan=2, pady=(5, 0))
 
@@ -124,6 +171,10 @@ class App(tk.Tk):
         self.csv_dir = self.csv_dir_var.get()
         if self.csv_dir:
             os.environ["EJ_CSV_DIR"] = self.csv_dir
+        
+        # Save current configuration
+        self._save_config()
+        
         self._show_script_widgets()
 
     def run_script(self, path):

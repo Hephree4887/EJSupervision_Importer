@@ -107,7 +107,7 @@ def load_config(config_file=None):
     
     if config_file and os.path.exists(config_file):
         try:
-            with open(config_file, 'r') as f:
+            with open(config_file, 'r', encoding='utf-8') as f:
                 file_config = json.load(f)
                 config.update(file_config)
             logger.info(f"Loaded configuration from {config_file}")
@@ -154,7 +154,7 @@ def import_joins(config, log_file):
         raise FileNotFoundError(error_msg)
     
     # Read and import CSV
-    df = pd.read_csv(csv_path, delimiter='|')
+    df = pd.read_csv(csv_path, delimiter='|', encoding='utf-8')
     df = df.astype({
         'DatabaseName': 'str', 'SchemaName': 'str', 'TableName': 'str',
         'Freq': 'str', 'InScopeFreq': 'str', 'Select_Only': 'str',

@@ -110,7 +110,7 @@ def load_config(config_file=None):
     
     if config_file and os.path.exists(config_file):
         try:
-            with open(config_file, 'r') as f:
+            with open(config_file, 'r', encoding='utf-8') as f:
                 file_config = json.load(f)
                 config.update(file_config)
             logger.info(f"Loaded configuration from {config_file}")
@@ -163,7 +163,7 @@ def import_joins(config, log_file):
         raise FileNotFoundError(error_msg)
     
     # Read and import CSV
-    df = pd.read_csv(csv_path, delimiter='|')
+    df = pd.read_csv(csv_path, delimiter='|', encoding='utf-8')
     df = df.astype({
         'DatabaseName': 'str', 'SchemaName': 'str', 'TableName': 'str',
         'Freq': 'str', 'InScopeFreq': 'str', 'Select_Only': 'str',
@@ -222,15 +222,26 @@ def execute_table_operations(conn, config, log_file):
             try:
                 cursor.execute(drop_sql)
                 conn.commit()
+
+                try:
+                    select_into_sql.encode('utf-8')
+                except UnicodeEncodeError as e:
+                    logger.error(f"Skipping SQL due to encoding error: {repr(select_into_sql)}")
+                    continue
                 
-                if select_into_sql and select_into_sql.strip():
-                    #logger.info(f"RowID:{idx} Select INTO:(Justice.{full_table_name})")
+            if select_into_sql and select_into_sql.strip():
+                try:
+                    # Attempt to encode to utf-8 to catch encoding issues
+                    select_into_sql.encode('utf-8')
                     cursor.execute(select_into_sql)
                     conn.commit()
-            except Exception as e:
-                error_msg = f"Error executing statements for row {idx} (Justice.{full_table_name}): {e}"
-                logger.error(error_msg)
-                log_exception_to_file(error_msg, log_file)
+                except UnicodeEncodeError as e:
+                    logger.error(f"Skipping SQL due to encoding error: {repr(select_into_sql)}")
+                    continue
+                except Exception as e:
+                    error_msg = f"Error executing statements for row {idx} (Justice.{full_table_name}): {e}"
+                    logger.error(error_msg)
+                    log_exception_to_file(error_msg, log_file)
     
     cursor.close()
     logger.info("All Drop_IfExists and Select_Into statements executed for the JUSTICE Database")

@@ -52,6 +52,7 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include=".env" />
+    <Content Include="config\values.json" />
     <Content Include="sql_scripts\financial\create_primarykeys_financial.sql" />
     <Content Include="sql_scripts\financial\gather_drops_and_selects_financial.sql" />
     <Content Include="sql_scripts\financial\gather_feeinstanceids.sql" />
