@@ -193,58 +193,79 @@ def execute_table_operations(conn, config, log_file):
     logger.info("Executing table operations (DROP/SELECT)")
     
     cursor = conn.cursor()
-    cursor.execute(f"""
-        SELECT RowID, DatabaseName, SchemaName, TableName, fConvert, ScopeRowCount,
-               Drop_IfExists, CAST(Select_Into AS VARCHAR(MAX)) + CAST(Joins AS VARCHAR(MAX)) AS [Select_Into]
-        FROM {DB_NAME}.dbo.TablesToConvert S
-        WHERE fConvert=1
-        ORDER BY DatabaseName, SchemaName, TableName
-    """)
-    rows = cursor.fetchall()
-    columns = [desc[0] for desc in cursor.description]
     
-    for idx, row in enumerate(safe_tqdm(rows, desc="Drop/Select", unit="table"), 1):
-        row_dict = dict(zip(columns, row))
-        drop_sql = row_dict.get('Drop_IfExists')
-        select_into_sql = row_dict.get('Select_Into')
-        table_name = row_dict.get('TableName')
-        schema_name = row_dict.get('SchemaName')
-        scope_row_count = row_dict.get('ScopeRowCount')
-        full_table_name = f"{schema_name}.{table_name}"
+    try:
+        # Use unicode-friendly query with proper data types
+        cursor.execute(f"""
+            SELECT RowID, DatabaseName, SchemaName, TableName, fConvert, ScopeRowCount,
+                   CAST(Drop_IfExists AS NVARCHAR(MAX)) AS Drop_IfExists, 
+                   CAST(Select_Into AS NVARCHAR(MAX)) + CAST(ISNULL(Joins, N'') AS NVARCHAR(MAX)) AS [Select_Into]
+            FROM {DB_NAME}.dbo.TablesToConvert S
+            WHERE fConvert=1
+            ORDER BY DatabaseName, SchemaName, TableName
+        """)
         
-        # Skip empty tables unless configured to include them
-        if not config['include_empty_tables'] and (scope_row_count is None or int(scope_row_count) <= 0):
-            logger.info(f"Skipping Select INTO for {full_table_name}: scope_row_count is {scope_row_count}")
-            continue
+        rows = cursor.fetchall()
+        columns = [desc[0] for desc in cursor.description]
         
-        if drop_sql and drop_sql.strip():
-            #logger.info(f"RowID:{idx} Drop If Exists:(Justice.{full_table_name})")
+        for idx, row in enumerate(safe_tqdm(rows, desc="Drop/Select", unit="table"), 1):
             try:
-                cursor.execute(drop_sql)
-                conn.commit()
-
-                try:
-                    select_into_sql.encode('utf-8')
-                except UnicodeEncodeError as e:
-                    logger.error(f"Skipping SQL due to encoding error: {repr(select_into_sql)}")
-                    continue
+                row_dict = dict(zip(columns, row))
+                drop_sql = sanitize_sql(row_dict.get('Drop_IfExists'))
+                select_into_sql = sanitize_sql(row_dict.get('Select_Into'))
+                table_name = row_dict.get('TableName')
+                schema_name = row_dict.get('SchemaName')
+                scope_row_count = row_dict.get('ScopeRowCount')
+                full_table_name = f"{schema_name}.{table_name}"
                 
-            if select_into_sql and select_into_sql.strip():
-                try:
-                    # Attempt to encode to utf-8 to catch encoding issues
-                    select_into_sql.encode('utf-8')
-                    cursor.execute(select_into_sql)
-                    conn.commit()
-                except UnicodeEncodeError as e:
-                    logger.error(f"Skipping SQL due to encoding error: {repr(select_into_sql)}")
-                    continue
-                except Exception as e:
-                    error_msg = f"Error executing statements for row {idx} (Justice.{full_table_name}): {e}"
+                # Skip if sanitization failed
+                if not drop_sql or not select_into_sql:
+                    error_msg = f"Skipping row {idx} ({full_table_name}): SQL sanitization failed"
                     logger.error(error_msg)
                     log_exception_to_file(error_msg, log_file)
-    
-    cursor.close()
-    logger.info("All Drop_IfExists and Select_Into statements executed for the JUSTICE Database")
+                    continue
+                
+                # Skip empty tables unless configured to include them
+                if not config['include_empty_tables'] and (scope_row_count is None or int(scope_row_count) <= 0):
+                    logger.info(f"Skipping Select INTO for {full_table_name}: scope_row_count is {scope_row_count}")
+                    continue
+                
+                if drop_sql and drop_sql.strip():
+                    logger.info(f"RowID:{idx} Drop If Exists:(Justice.{full_table_name})")
+                    try:
+                        cursor.execute(drop_sql)
+                        conn.commit()
+                        
+                        if select_into_sql and select_into_sql.strip():
+                            logger.info(f"RowID:{idx} Select INTO:(Justice.{full_table_name})")
+                            try:
+                                # Execute in smaller chunks if necessary
+                                cursor.execute(select_into_sql)
+                                conn.commit()
+                            except Exception as sql_e:
+                                error_msg = f"Error executing SELECT INTO for row {idx} ({full_table_name}): {str(sql_e)}"
+                                logger.error(error_msg)
+                                log_exception_to_file(error_msg, log_file)
+                                # Don't fail the entire process for one problematic SELECT
+                    except Exception as e:
+                        error_msg = f"Error executing DROP for row {idx} ({full_table_name}): {str(e)}"
+                        logger.error(error_msg)
+                        log_exception_to_file(error_msg, log_file)
+            except Exception as row_e:
+                error_msg = f"Error processing row {idx}: {str(row_e)}"
+                logger.error(error_msg)
+                log_exception_to_file(error_msg, log_file)
+                continue  # Skip to next row instead of failing completely
+                
+    except Exception as query_e:
+        error_msg = f"Error executing initial query: {str(query_e)}"
+        logger.error(error_msg)
+        log_exception_to_file(error_msg, log_file)
+        raise
+    finally:
+        cursor.close()
+        
+    logger.info("All Drop_IfExists and Select_Into statements executed for the JUSTICE DATABASE")
 def create_primary_keys(conn, config, log_file):
     """Create primary keys and NOT NULL constraints."""
     if config['skip_pk_creation']:

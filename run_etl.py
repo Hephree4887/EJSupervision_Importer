@@ -20,7 +20,8 @@ class App(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("EJ Supervision Importer")
-        self.resizable(False, False)
+        self.resizable(True, True)  # Allow resizing
+        self.minsize(900, 600)  # Set minimum window size
         self.conn_str = None
         self.csv_dir = ""
         self.config_values = self._load_config()
@@ -70,7 +71,7 @@ class App(tk.Tk):
         for i, field in enumerate(fields):
             lbl = tk.Label(self, text=field+":")
             lbl.grid(row=i, column=0, sticky="e", padx=5, pady=2)
-            ent = tk.Entry(self, width=40)
+            ent = tk.Entry(self, width=60)  # Increased from 40
             if field.lower() == "password":
                 ent.config(show="*")
             # Pre-populate with config values if available
@@ -111,6 +112,12 @@ class App(tk.Tk):
         self.script_frame = tk.Frame(self)
         start_row = len(self.entries) + 3
         self.script_frame.grid(row=start_row, column=0, columnspan=3, sticky="nsew")
+        
+        # Configure row and column weights to allow expansion
+        self.grid_rowconfigure(start_row, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_columnconfigure(2, weight=1)
 
         # Add column headers
         tk.Label(self.script_frame, text="Script", font=("Arial", 10, "bold")).grid(row=0, column=0, sticky="w", padx=5, pady=2)
@@ -128,12 +135,19 @@ class App(tk.Tk):
             # Add status label for current table
             status_var = tk.StringVar(value="Not started")
             status_lbl = tk.Label(self.script_frame, textvariable=status_var, 
-                                 width=30, anchor="w", bg="#f0f0f0")
+                                 width=50, anchor="w", bg="#f0f0f0")  # Increased from 30
             status_lbl.grid(row=idx, column=2, sticky="w", padx=5, pady=2)
             self.status_labels[path] = status_var
+            
+        # Configure grid for output text to expand
+        self.script_frame.grid_rowconfigure(len(SCRIPTS)+1, weight=1)
+        self.script_frame.grid_columnconfigure(0, weight=1)
+        self.script_frame.grid_columnconfigure(1, weight=1)
+        self.script_frame.grid_columnconfigure(2, weight=1)
 
-        self.output_text = scrolledtext.ScrolledText(self.script_frame, width=80, height=20)
-        self.output_text.grid(row=len(SCRIPTS)+1, column=0, columnspan=3, pady=(10, 0))
+        # Create wider output text area
+        self.output_text = scrolledtext.ScrolledText(self.script_frame, width=120, height=30)  # Increased width and height
+        self.output_text.grid(row=len(SCRIPTS)+1, column=0, columnspan=3, sticky="nsew", pady=(10, 0))
 
     def _build_conn_str(self):
         driver = self.entries["driver"].get() or "{ODBC Driver 17 for SQL Server}"
@@ -189,43 +203,58 @@ class App(tk.Tk):
         self.output_text.insert(tk.END, f"Running {path}...\n")
         self.output_text.see(tk.END)
         
+        # Create a debug log file
+        debug_log = open(f"{path}_debug.log", "w", encoding="utf-8")
+        
         try:
-            # Use Popen instead of run to capture output in real-time
+            # Force Python to run unbuffered with environment variable
+            my_env = os.environ.copy()
+            my_env["PYTHONUNBUFFERED"] = "1"
+            
+            # Use Popen with simpler configuration that ensures output flows
             process = subprocess.Popen(
-                [sys.executable, path],
+                [sys.executable, "-u", path],  # -u for unbuffered output
                 stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
+                stderr=subprocess.STDOUT,  # Merge stderr into stdout
                 bufsize=1,
-                universal_newlines=True
+                universal_newlines=True,  # Use text mode
+                env=my_env
             )
             
-            # Patterns to match table processing notifications
-            drop_pattern = re.compile(r"Drop If Exists:\((\w+)\.([^)]+)\)")
-            select_pattern = re.compile(r"Select INTO:\((\w+)\.([^)]+)\)")
-            
-            # Update GUI with output in real-time
-            while True:
-                output = process.stdout.readline()
-                if output == '' and process.poll() is not None:
+            # Process output line by line with immediate display
+            for line in iter(process.stdout.readline, ''):
+                if not line:
                     break
-                if output:
-                    # Check for table name in output
-                    drop_match = drop_pattern.search(output)
-                    select_match = select_pattern.search(output)
                     
-                    if drop_match:
-                        db, table = drop_match.groups()
-                        self.status_labels[path].set(f"Dropping: {table}")
-                    elif select_match:
-                        db, table = select_match.groups()
-                        self.status_labels[path].set(f"Creating: {table}")
+                # Log to debug file
+                debug_log.write(line)
+                debug_log.flush()
+                
+                # Update the UI with the current line
+                self.output_text.insert(tk.END, line)
+                self.output_text.see(tk.END)
+                
+                # Update status based on line content
+                if "Drop If Exists" in line:
+                    match = re.search(r"RowID:(\d+) Drop If Exists:\((.*?)\.([^)]+)\)", line)
+                    if match:
+                        row_id, schema, table = match.groups()
+                        self.status_labels[path].set(f"Dropping: {schema}.{table}")
+                elif "Select INTO" in line:
+                    match = re.search(r"RowID:(\d+) Select INTO:\((.*?)\.([^)]+)\)", line)
+                    if match:
+                        row_id, schema, table = match.groups()
+                        self.status_labels[path].set(f"Creating: {schema}.{table}")
+                elif "Error" in line or "ERROR" in line:
+                    self.status_labels[path].set("ERROR DETECTED")
                     
-                    self.output_text.insert(tk.END, output)
-                    self.output_text.see(tk.END)
-                    self.update()  # Update the GUI
-                    
-            return_code = process.poll()
+                # Force UI update
+                self.update_idletasks()
+            
+            # Wait for process to complete
+            process.wait()
+            
+            return_code = process.returncode
             if return_code != 0:
                 self.output_text.insert(tk.END, f"Process exited with return code {return_code}\n")
                 self.status_labels[path].set("ERROR")
@@ -235,9 +264,13 @@ class App(tk.Tk):
         except Exception as exc:
             self.output_text.insert(tk.END, f"Error running {path}: {exc}\n")
             self.status_labels[path].set("ERROR")
-            
-        self.output_text.insert(tk.END, f"Finished {path}\n\n")
-        self.output_text.see(tk.END)
+            debug_log.write(f"Error running {path}: {exc}\n")
+        finally:
+            debug_log.close()
+            self.output_text.insert(tk.END, f"Finished {path}\n\n")
+            self.output_text.insert(tk.END, f"Debug log written to {path}_debug.log\n")
+            self.output_text.see(tk.END)
+            self.update()
 
 if __name__ == "__main__":
     App().mainloop()
