@@ -27,7 +27,6 @@ class App(tk.Tk):
         self.config_values = self._load_config()
         self._create_connection_widgets()
         self.status_labels = {}  # Store status labels
-
     def _load_config(self):
         """Load configuration from JSON file if it exists"""
         try:
@@ -45,7 +44,6 @@ class App(tk.Tk):
             "csv_dir": "",
             "include_empty_tables": False
         }
-
     def _save_config(self):
         """Save current configuration to JSON file"""
         config = {
@@ -64,7 +62,6 @@ class App(tk.Tk):
                 json.dump(config, f, indent=2)
         except Exception as e:
             print(f"Error saving config: {e}")
-
     def _create_connection_widgets(self):
         fields = ["Driver", "Server", "Database", "User", "Password"]
         self.entries = {}
@@ -99,12 +96,10 @@ class App(tk.Tk):
 
         test_btn = tk.Button(self, text="Test Connection", command=self.test_connection)
         test_btn.grid(row=row+2, column=0, columnspan=2, pady=10)
-
     def _browse_csv_dir(self):
         directory = filedialog.askdirectory()
         if directory:
             self.csv_dir_var.set(directory)
-
     def _show_script_widgets(self):
         if hasattr(self, "script_frame"):
             return
@@ -148,7 +143,6 @@ class App(tk.Tk):
         # Create wider output text area
         self.output_text = scrolledtext.ScrolledText(self.script_frame, width=120, height=30)  # Increased width and height
         self.output_text.grid(row=len(SCRIPTS)+1, column=0, columnspan=3, sticky="nsew", pady=(10, 0))
-
     def _build_conn_str(self):
         driver = self.entries["driver"].get() or "{ODBC Driver 17 for SQL Server}"
         server = self.entries["server"].get()
@@ -163,8 +157,12 @@ class App(tk.Tk):
             parts.append(f"UID={user}")
         if password:
             parts.append(f"PWD={password}")
-        return ";".join(parts)
-
+    
+        # Add Unicode support for SQL Server
+        parts.append("CHARSET=UTF8")
+        parts.append("autocommit=True")
+    
+    return ";".join(parts)
     def test_connection(self):
         conn_str = self._build_conn_str()
         if not conn_str:
@@ -190,85 +188,101 @@ class App(tk.Tk):
         self._save_config()
         
         self._show_script_widgets()
-
     def run_script(self, path):
         if not self.conn_str:
             messagebox.showerror("Error", "Please test the connection first")
             return
-            
-        # Reset status label
+        
+        # Reset status and prepare for execution
         self.status_labels[path].set("Starting...")
-        
-        os.environ["INCLUDE_EMPTY_TABLES"] = "1" if self.include_empty_var.get() else "0"
-        self.output_text.insert(tk.END, f"Running {path}...\n")
+        self.output_text.insert(tk.END, f"Starting {path}...\n")
         self.output_text.see(tk.END)
-        
-        # Create a debug log file
-        debug_log = open(f"{path}_debug.log", "w", encoding="utf-8")
-        
+    
+        os.environ["INCLUDE_EMPTY_TABLES"] = "1" if self.include_empty_var.get() else "0"
+    
+        # Create debug log with UTF-8 encoding
+        debug_log_path = f"{path}_debug.log"
+    
         try:
-            # Force Python to run unbuffered with environment variable
             my_env = os.environ.copy()
             my_env["PYTHONUNBUFFERED"] = "1"
-            
-            # Use Popen with simpler configuration that ensures output flows
+            my_env["PYTHONIOENCODING"] = "utf-8"  # Force UTF-8 for Python I/O
+        
             process = subprocess.Popen(
-                [sys.executable, "-u", path],  # -u for unbuffered output
+                [sys.executable, "-u", path],
                 stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,  # Merge stderr into stdout
+                stderr=subprocess.STDOUT,
                 bufsize=1,
-                universal_newlines=True,  # Use text mode
+                encoding='utf-8',
+                errors='replace',  # Replace problematic characters
                 env=my_env
             )
-            
-            # Process output line by line with immediate display
-            for line in iter(process.stdout.readline, ''):
-                if not line:
-                    break
-                    
-                # Log to debug file
-                debug_log.write(line)
-                debug_log.flush()
+        
+            # Enhanced progress tracking
+            current_table = ""
+            error_count = 0
+        
+            with open(debug_log_path, "w", encoding="utf-8") as debug_log:
+                for line_number, line in enumerate(iter(process.stdout.readline, ''), 1):
+                    if not line:
+                        break
                 
-                # Update the UI with the current line
-                self.output_text.insert(tk.END, line)
-                self.output_text.see(tk.END)
+                    # Write to debug log
+                    debug_log.write(line)
+                    debug_log.flush()
                 
-                # Update status based on line content
-                if "Drop If Exists" in line:
-                    match = re.search(r"RowID:(\d+) Drop If Exists:\((.*?)\.([^)]+)\)", line)
-                    if match:
-                        row_id, schema, table = match.groups()
-                        self.status_labels[path].set(f"Dropping: {schema}.{table}")
-                elif "Select INTO" in line:
-                    match = re.search(r"RowID:(\d+) Select INTO:\((.*?)\.([^)]+)\)", line)
-                    if match:
-                        row_id, schema, table = match.groups()
-                        self.status_labels[path].set(f"Creating: {schema}.{table}")
-                elif "Error" in line or "ERROR" in line:
-                    self.status_labels[path].set("ERROR DETECTED")
+                    # Update UI more frequently
+                    if line_number % 5 == 0:  # Update every 5 lines instead of every line
+                        self.output_text.insert(tk.END, line)
+                        self.output_text.see(tk.END)
                     
-                # Force UI update
-                self.update_idletasks()
-            
-            # Wait for process to complete
-            process.wait()
-            
-            return_code = process.returncode
+                        # Enhanced status tracking with better error handling
+                        try:
+                            if "Drop If Exists" in line:
+                                match = re.search(r"RowID:(\d+) Drop If Exists:\((.*?)\)", line)
+                                if match:
+                                    row_id, table_info = match.groups()
+                                    current_table = table_info
+                                    self.status_labels[path].set(f"Dropping: {current_table}")
+                            elif "Select INTO" in line:
+                                match = re.search(r"RowID:(\d+) Select INTO:\((.*?)\)", line)
+                                if match:
+                                    row_id, table_info = match.groups()
+                                    current_table = table_info
+                                    self.status_labels[path].set(f"Creating: {current_table}")
+                            elif any(error_word in line.upper() for error_word in ["ERROR", "EXCEPTION", "FAILED"]):
+                                error_count += 1
+                                self.status_labels[path].set(f"Errors: {error_count} - Last table: {current_table}")
+                            elif "completed successfully" in line.lower():
+                                self.status_labels[path].set(f"Completed step - Current: {current_table}")
+                        except Exception as status_error:
+                            # Don't let status update errors break the main process
+                            logger.debug(f"Status update error: {status_error}")
+                    
+                        # Force UI update
+                        self.update_idletasks()
+                    else:
+                        # Still accumulate all output for the debug log
+                        debug_log.write(line)
+        
+            # Wait for completion
+            return_code = process.wait()
+        
             if return_code != 0:
                 self.output_text.insert(tk.END, f"Process exited with return code {return_code}\n")
-                self.status_labels[path].set("ERROR")
+                self.status_labels[path].set(f"FAILED (code {return_code})")
             else:
-                self.status_labels[path].set("Completed")
-
+                self.status_labels[path].set("COMPLETED")
+            
         except Exception as exc:
-            self.output_text.insert(tk.END, f"Error running {path}: {exc}\n")
-            self.status_labels[path].set("ERROR")
-            debug_log.write(f"Error running {path}: {exc}\n")
+            error_msg = f"Error running {path}: {exc}"
+            self.output_text.insert(tk.END, f"{error_msg}\n")
+            self.status_labels[path].set("EXECUTION ERROR")
+            logger.error(error_msg)
+        
         finally:
-            debug_log.close()
-            self.output_text.insert(tk.END, f"Finished {path}\n\n")
-            self.output_text.insert(tk.END, f"Debug log written to {path}_debug.log\n")
+            completion_msg = f"Finished {path}\nDebug log: {debug_log_path}\n"
+            self.output_text.insert(tk.END, completion_msg)
             self.output_text.see(tk.END)
             self.update()
 
