@@ -21,6 +21,37 @@ SCRIPTS = [
 ]
 
 CONFIG_FILE = os.path.join("config", "values.json")
+# Add this code to run_etl.py to make it work with our new modular structure
+
+def run_sequential_etl(env):
+    """Run the ETL scripts sequentially in proper order."""
+    from importlib import import_module
+    
+    # Order of execution
+    import_modules = [
+        "01_JusticeDB_Import",
+        "02_OperationsDB_Import",
+        "03_FinancialDB_Import",
+        "04_LOBColumns"
+    ]
+    
+    # Set up current environment
+    old_environ = os.environ.copy()
+    os.environ.update(env)
+    
+    try:
+        for module_name in import_modules:
+            module = import_module(module_name)
+            proceed = module.main()  # main() should return True/False to continue
+            
+            if not proceed:
+                logger.info(f"Stopped after {module_name}")
+                break
+                
+    finally:
+        # Restore environment
+        os.environ.clear()
+        os.environ.update(old_environ)
 
 class ScriptRunner(threading.Thread):
     """Thread class to run scripts without blocking the UI."""
@@ -166,6 +197,21 @@ class App(tk.Tk):
         # Start the queue processing
         self._process_queues()
         
+        # Schedule automatic output clearing (5 minutes = 300,000 ms)
+        self._schedule_auto_clear()
+    
+    def _schedule_auto_clear(self):
+        """Schedule automatic clearing of output every 5 minutes"""
+        self.after(300000, self._auto_clear)
+    
+    def _auto_clear(self):
+        """Automatically clear the output and reschedule"""
+        if hasattr(self, "output_text"):
+            self.clear_output()
+            self.output_text.insert(tk.END, "[AUTO] Output automatically cleared (5-minute interval)\n\n")
+        # Reschedule for next time
+        self._schedule_auto_clear()
+    
     def _load_config(self):
         """Load configuration from JSON file if it exists"""
         try:

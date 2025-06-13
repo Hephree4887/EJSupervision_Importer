@@ -27,11 +27,13 @@
     <Compile Include="02_OperationsDB_Import.py" />
     <Compile Include="03_FinancialDB_Import.py" />
     <Compile Include="04_LOBColumns.py" />
+    <Compile Include="etl\base_importer.py" />
     <Compile Include="config\settings.py" />
     <Compile Include="config\__init__.py" />
     <Compile Include="db\mssql.py" />
     <Compile Include="db\mysql.py" />
     <Compile Include="db\__init__.py" />
+    <Compile Include="etl\core.py" />
     <Compile Include="run_etl.py" />
     <Compile Include="tests\test_mssql.py" />
     <Compile Include="tests\test_mysql.py" />
@@ -42,6 +44,7 @@
   <ItemGroup>
     <Folder Include="db\" />
     <Folder Include="config\" />
+    <Folder Include="etl\" />
     <Folder Include="sql_scripts\" />
     <Folder Include="sql_scripts\financial\" />
     <Folder Include="sql_scripts\justice\" />
