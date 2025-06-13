@@ -1,1 +1,1 @@
-# Utility modules for ETL scripts
+"""Shared utility modules used by the ETL scripts."""

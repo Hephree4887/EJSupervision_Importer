@@ -1,4 +1,12 @@
+"""ETL script to migrate Financial database tables to the target server.
+
+SQL files under ``sql_scripts/financial`` are executed in sequence.  Environment
+variables and command line options control the log path, CSV file location and
+whether empty tables are processed.
+"""
+
 import logging
+from utils.logging_helper import setup_logging, operation_counts
 import time
 import json
 import sys
@@ -24,7 +32,6 @@ from utils.etl_helpers import (
 )
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
 DEFAULT_LOG_FILE = "PreDMSErrorLog_Financial.txt"
 
@@ -104,9 +111,15 @@ class FinancialDBImporter(BaseDBImporter):
 
 def main():
     """Main entry point for Financial DB Import."""
+    setup_logging()
     load_dotenv()
     importer = FinancialDBImporter()
     importer.run()
+    logger.info(
+        "Run completed - successes: %s failures: %s",
+        operation_counts["success"],
+        operation_counts["failure"],
+    )
 
 if __name__ == "__main__":
     main()

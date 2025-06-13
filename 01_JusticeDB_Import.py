@@ -1,4 +1,13 @@
+"""ETL script to migrate Justice database tables to the target server.
+
+The script loads SQL files under ``sql_scripts/justice`` and executes them
+against the database specified via ``MSSQL_TARGET_CONN_STR``.  Command line
+arguments allow overriding the log file location, CSV directory and other
+options.
+"""
+
 import logging
+from utils.logging_helper import setup_logging, operation_counts
 import time
 import json
 import sys
@@ -24,7 +33,6 @@ from utils.etl_helpers import (
 )
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
 DEFAULT_LOG_FILE = "PreDMSErrorLog_Justice.txt"
 
@@ -110,9 +118,15 @@ class JusticeDBImporter(BaseDBImporter):
 
 def main():
     """Main entry point for Justice DB Import."""
+    setup_logging()
     load_dotenv()
     importer = JusticeDBImporter()
     importer.run()
+    logger.info(
+        "Run completed - successes: %s failures: %s",
+        operation_counts["success"],
+        operation_counts["failure"],
+    )
 
 if __name__ == "__main__":
     main()

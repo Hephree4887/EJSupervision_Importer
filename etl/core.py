@@ -4,9 +4,49 @@ import os
 import json
 import re
 import unicodedata
+from dataclasses import dataclass, field
 from tqdm import tqdm
+from config import ETLConstants
+
+_IDENTIFIER_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 
 logger = logging.getLogger(__name__)
+
+
+class ConfigError(Exception):
+    """Raised when required configuration is missing or invalid."""
+    pass
+
+
+@dataclass
+class Settings:
+    """Configuration loaded from environment variables."""
+
+    mssql_target_conn_str: str = field(default_factory=lambda: os.getenv("MSSQL_TARGET_CONN_STR"))
+    ej_csv_dir: str = field(default_factory=lambda: os.getenv("EJ_CSV_DIR"))
+    ej_log_dir: str = field(default_factory=lambda: os.getenv("EJ_LOG_DIR", os.getcwd()))
+    include_empty_tables: bool = field(default_factory=lambda: os.getenv("INCLUDE_EMPTY_TABLES", "0") == "1")
+    sql_timeout: int = field(
+        default_factory=lambda: int(
+            os.getenv("SQL_TIMEOUT", str(ETLConstants.DEFAULT_SQL_TIMEOUT))
+        )
+    )
+
+    def __post_init__(self) -> None:
+        missing = []
+        if not self.mssql_target_conn_str:
+            missing.append("MSSQL_TARGET_CONN_STR")
+        if not self.ej_csv_dir:
+            missing.append("EJ_CSV_DIR")
+
+        if missing:
+            raise ConfigError("Missing required environment variables: " + ", ".join(missing))
+
+        if not os.path.exists(self.ej_csv_dir):
+            raise ConfigError(f"EJ_CSV_DIR path does not exist: {self.ej_csv_dir}")
+
+        if self.sql_timeout <= 0:
+            raise ConfigError("SQL_TIMEOUT must be a positive integer")
 
 def validate_environment(required_vars, optional_vars):
     """Validate environment variables with custom requirements."""
@@ -71,7 +111,17 @@ def sanitize_sql(sql_text):
         
         # Normalize Unicode
         sql_text = unicodedata.normalize('NFKC', sql_text)
-        
+
+        # Basic guard against common injection patterns. If a pattern is
+        # detected return an empty string so the caller can decide how to
+        # handle it. This keeps legitimate statements like "DROP TABLE IF
+        # EXISTS" intact because those are not preceded by a trailing quote
+        # and semicolon.
+        injection_regex = re.compile(r"';\s*(drop|delete|insert|update)\s",
+                                    re.IGNORECASE)
+        if injection_regex.search(sql_text):
+            return ""
+
         return sql_text
         
     except Exception as e:
@@ -101,3 +151,26 @@ def safe_tqdm(iterable, **kwargs):
         print(f"Progress bar disabled: {kwargs.get('desc', 'Processing')}")
         for item in iterable:
             yield item
+
+
+def validate_sql_identifier(identifier: str) -> str:
+    """Validate a string for use as a SQL identifier.
+
+    Only allows alphanumeric characters and underscores and must not start with a digit.
+
+    Args:
+        identifier: The identifier to validate.
+
+    Returns:
+        The original identifier if valid.
+
+    Raises:
+        ValueError: If the identifier is invalid.
+    """
+    if not isinstance(identifier, str):
+        raise ValueError("Identifier must be a string")
+
+    if not _IDENTIFIER_RE.match(identifier):
+        raise ValueError(f"Invalid SQL identifier: {identifier}")
+
+    return identifier

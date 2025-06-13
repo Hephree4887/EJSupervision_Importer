@@ -1,7 +1,26 @@
+"""Helper functions for executing SQL statements with logging and retries."""
+
 import logging
+from utils.logging_helper import record_success, record_failure
 import os
 import time
 from typing import Optional, Any, List
+
+from config import ETLConstants
+
+class ETLError(Exception):
+    """Base exception for ETL operations."""
+
+
+class SQLExecutionError(ETLError):
+    """Exception raised when SQL execution fails."""
+
+    def __init__(self, sql: str, original_error: Exception, table_name: Optional[str] = None):
+        self.sql = sql
+        self.original_error = original_error
+        self.table_name = table_name
+        msg = f"SQL execution failed for {table_name or 'statement'}: {original_error}"
+        super().__init__(msg)
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +62,9 @@ def load_sql(filename: str, db_name: Optional[str] = None) -> str:
         logger.debug(f"Replaced database name in {filename} with {db_name}")
     
     return sql
-def run_sql_step(conn, name: str, sql: str, timeout: int = 300) -> Optional[List[Any]]:
+def run_sql_step(
+    conn, name: str, sql: str, timeout: int = ETLConstants.DEFAULT_SQL_TIMEOUT
+) -> Optional[List[Any]]:
     """Execute a single SQL statement and fetch any results.
     
     Args:
@@ -58,26 +79,60 @@ def run_sql_step(conn, name: str, sql: str, timeout: int = 300) -> Optional[List
     logger.info(f"Starting step: {name}")
     start_time = time.time()
     try:
-        cursor = conn.cursor()
-        # Set the query timeout
-        cursor.execute(f"SET LOCK_TIMEOUT {timeout * 1000}")  # Convert to milliseconds
-        cursor.execute(sql)
-        
-        try:
-            results = cursor.fetchall()
-            logger.info(f"{name}: Retrieved {len(results)} rows")
-        except Exception:
-            results = None
-            logger.info(f"{name}: Statement executed (no results to fetch)")
-        
-        cursor.close()
+        with conn.cursor() as cursor:
+            # Set the query timeout
+            cursor.execute(f"SET LOCK_TIMEOUT {timeout * 1000}")  # Convert to milliseconds
+            cursor.execute(sql)
+
+            try:
+                results = cursor.fetchall()
+                logger.info(f"{name}: Retrieved {len(results)} rows")
+            except Exception:
+                results = None
+                logger.info(f"{name}: Statement executed (no results to fetch)")
+
         elapsed = time.time() - start_time
         logger.info(f"Completed step: {name} in {elapsed:.2f} seconds")
+        record_success()
         return results
     except Exception as e:
-        logger.error(f"Error in step {name}: {str(e)}")
-        raise
-def run_sql_script(conn, name: str, sql: str, timeout: int = 300):
+        elapsed = time.time() - start_time
+        logger.error(f"Error executing step {name}: {e}. SQL: {sql}")
+        logger.info(f"Step {name} failed after {elapsed:.2f} seconds")
+        record_failure()
+        raise SQLExecutionError(sql, e, table_name=name)
+
+
+def run_sql_step_with_retry(
+    conn,
+    name: str,
+    sql: str,
+    timeout: int = ETLConstants.DEFAULT_SQL_TIMEOUT,
+    max_retries: int = ETLConstants.MAX_RETRY_ATTEMPTS,
+) -> Optional[List[Any]]:
+    """Execute a SQL step with retry logic for transient ``pyodbc.Error`` failures."""
+
+    for attempt in range(max_retries):
+        try:
+            return run_sql_step(conn, name, sql, timeout)
+        except SQLExecutionError as exc:
+            import pyodbc  # Imported lazily for tests that stub this module
+
+            if not isinstance(exc.original_error, pyodbc.Error):
+                raise
+
+            if attempt == max_retries - 1:
+                raise
+
+            if "timeout" in str(exc.original_error).lower():
+                logger.warning(
+                    f"Timeout on attempt {attempt + 1} for {name}, retrying..."
+                )
+
+            time.sleep(2**attempt)
+def run_sql_script(
+    conn, name: str, sql: str, timeout: int = ETLConstants.DEFAULT_SQL_TIMEOUT
+):
     """Execute a multi-statement SQL script.
     
     Args:
@@ -89,31 +144,47 @@ def run_sql_script(conn, name: str, sql: str, timeout: int = 300):
     logger.info(f"Starting script: {name}")
     start_time = time.time()
     try:
-        cursor = conn.cursor()
-        # Set the query timeout
-        cursor.execute(f"SET LOCK_TIMEOUT {timeout * 1000}")  # Convert to milliseconds
-        
-        # Split by GO statements as well as semicolons for SQL Server
-        # This handles scripts that use GO as a batch separator
-        sql_batches = sql.split('\nGO\n') if '\nGO\n' in sql else [sql]
-        
-        total_statements = 0
-        for batch in sql_batches:
-            statements = [stmt.strip() for stmt in batch.split(';') if stmt.strip()]
-            for stmt in statements:
-                # Skip comments and empty statements
-                if stmt and not stmt.strip().startswith('--'):
-                    cursor.execute(stmt)
-                    conn.commit()
-                    total_statements += 1
-        
-        cursor.close()
+        with conn.cursor() as cursor:
+            # Set the query timeout
+            cursor.execute(f"SET LOCK_TIMEOUT {timeout * 1000}")  # Convert to milliseconds
+
+            # Split by GO statements as well as semicolons for SQL Server
+            # This handles scripts that use GO as a batch separator
+            sql_batches = sql.split('\nGO\n') if '\nGO\n' in sql else [sql]
+
+            total_statements = 0
+            for batch in sql_batches:
+                statements = [stmt.strip() for stmt in batch.split(';') if stmt.strip()]
+                for stmt in statements:
+                    # Skip comments and empty statements
+                    if stmt and not stmt.strip().startswith('--'):
+                        try:
+                            cursor.execute(stmt)
+                            conn.commit()
+                            total_statements += 1
+                        except Exception as e:
+                            logger.error(f"Error executing script {name}: {e}. SQL: {stmt}")
+                            raise SQLExecutionError(stmt, e, table_name=name)
+
         elapsed = time.time() - start_time
-        logger.info(f"Completed script: {name} - executed {total_statements} statements in {elapsed:.2f} seconds")
-    except Exception as e:
-        logger.error(f"Error in script {name}: {str(e)}")
+        logger.info(
+            f"Completed script: {name} - executed {total_statements} statements in {elapsed:.2f} seconds"
+        )
+        record_success()
+    except SQLExecutionError:
         raise
-def execute_sql_with_timeout(conn, sql: str, params: Optional[tuple] = None, timeout: int = 300) -> Any:
+    except Exception as e:
+        elapsed = time.time() - start_time
+        logger.error(f"Error in script {name}: {e}")
+        logger.info(f"Script {name} failed after {elapsed:.2f} seconds")
+        record_failure()
+        raise SQLExecutionError(sql, e, table_name=name)
+def execute_sql_with_timeout(
+    conn,
+    sql: str,
+    params: Optional[tuple] = None,
+    timeout: int = ETLConstants.DEFAULT_SQL_TIMEOUT,
+) -> Any:
     """Execute SQL with parameters and timeout.
     
     Args:
@@ -125,17 +196,23 @@ def execute_sql_with_timeout(conn, sql: str, params: Optional[tuple] = None, tim
     Returns:
         Cursor after execution
     """
-    cursor = conn.cursor()
-    try:
-        # Set the query timeout
-        cursor.execute(f"SET LOCK_TIMEOUT {timeout * 1000}")  # Convert to milliseconds
-        
-        if params:
-            cursor.execute(sql, params)
-        else:
-            cursor.execute(sql)
-        
-        return cursor
-    except Exception:
-        cursor.close()
-        raise
+    start_time = time.time()
+    with conn.cursor() as cursor:
+        try:
+            # Set the query timeout
+            cursor.execute(f"SET LOCK_TIMEOUT {timeout * 1000}")  # Convert to milliseconds
+
+            if params:
+                cursor.execute(sql, params)
+            else:
+                cursor.execute(sql)
+
+            record_success()
+            return cursor
+        except Exception as e:
+            logger.error(f"Error executing SQL: {e}. SQL: {sql}")
+            record_failure()
+            raise SQLExecutionError(sql, e)
+        finally:
+            elapsed = time.time() - start_time
+            logger.debug(f"SQL executed in {elapsed:.2f} seconds")

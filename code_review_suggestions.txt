@@ -1,0 +1,1123 @@
+ETL Solution Code Review
+Overall Architecture Assessment ⭐⭐⭐⭐☆
+Strengths:
+Well-organized modular structure with clear separation of concerns
+Good use of inheritance with
+BaseDBImporter
+class
+Consistent naming conventions and project organization
+Comprehensive SQL script organization by database type
+Good use of environment variables for configuration
+Areas for Improvement:
+SQL injection vulnerabilities
+Error handling inconsistencies
+Resource management issues
+Performance optimization opportunities
+Critical Security Issues 🚨
+1. SQL Injection Vulnerabilities (HIGH PRIORITY)
+Location:
+Multiple files, especially
+base_importer.py
+and SQL generation scripts
+Issues:
+Problem:
+Dynamic SQL execution without proper parameterization
+Recommendation:
+python
+# VULNERABLE# In execute_table_operations() - VULNERABLE
+cursorcursor
+..
+executeexecute
+((
+drop_sqldrop_sql
+))
+cursorcursor
+..
+executeexecute
+((
+select_sqlselect_into_sql
+))
+# In create_primary_keys() - VULNERABLE
+cursorcursor
+..
+executeexecute
+((
+createpk_sqlcreatepk_sql
+))
+2. Database Connection Security
+Issues:
+Connection strings may contain passwords in environment variables
+No connection encryption validation
+Missing connection timeout configurations
+Recommendations:
+Use Azure Key Vault or similar for sensitive connection details
+Implement connection string validation
+Add connection encryption verification
+Database Operations Issues 🗄️
+1. Transaction Management
+Location:
+base_importer.py
+-
+execute_table_operations()
+Issues:
+python
+# possible# Use parameterized queries where possible
+cursorcursor
+..
+executeexecute
+((
+"?""DROP TABLE IF EXISTS ?"
+,,
+((
+table_nametable_name
+,,
+))
+))
+# validation# For dynamic DDL, implement strict validation
+defdef
+validate_identifiervalidate_sql_identifier
+((
+identifieridentifier
+))
+::
+ifif
+notnot
+re
+..
+matchmatch
+((
+r'^[a-zA-Z_][a-zA-Z0-9_]*$'
+,,
+identifier
+))
+::
+raiseraise
+ValueError
+((
+f"Invalid SQL identifier:
+{{
+identifieridentifier
+}}
+""
+))
+returnreturn
+identifier
+# use# Validate before use
+table_name
+==
+validate_sql_identifier
+((
+row_dictrow_dict
+..
+getget
+((
+'TableName''TableName'
+))
+))
+Recommendation:
+2. Resource Management
+Issues:
+Cursors not consistently closed in finally blocks
+Connection handling could be improved
+Memory usage for large result sets not optimized
+Location:
+Multiple cursor usages throughout
+base_importer.py
+Fix:
+python
+# scope# Problematic: Individual commits without transaction scope
+cursorcursor
+..
+executeexecute
+((
+drop_sqldrop_sql
+))
+connconn
+..
+commitcommit
+((
+))
+# fails# Commits even if next operation fails
+cursorcursor
+..
+executeexecute
+((
+select_sqlselect_into_sql
+))
+connconn
+..
+commitcommit
+((
+))
+python
+defdef
+execute_operationsexecute_table_operations
+((
+selfself
+,,
+conn
+))
+::
+cursor
+==
+conn
+..
+cursorcursor
+((
+))
+successful_tables
+==
+00
+failed_tables
+==
+00
+forfor
+row
+inin
+self
+..
+safe_tqdmsafe_tqdm
+((
+rowsrows
+,,
+desc
+==
+"Select""Drop/Select"
+,,
+unit
+==
+"table""table"
+))
+::
+trytry
+::
+# operation# Start transaction for each table operation
+withwith
+conn
+..
+beginbegin
+((
+))
+::
+# operation# Execute drop and select as atomic operation
+ifif
+drop_sql
+..
+stripstrip
+((
+))
+::
+cursor
+..
+executeexecute
+((
+drop_sqldrop_sql
+))
+ifif
+select_into_sql
+..
+stripstrip
+((
+))
+::
+cursor
+..
+executeexecute
+((
+select_sqlselect_into_sql
+))
+successful_tables
++=+=
+11
+exceptexcept
+Exception
+asas
+e
+::
+# back# Transaction automatically rolls back
+self
+..
+log_errorlog_table_error
+((
+rowrow
+,,
+e
+))
+failed_tables
++=+=
+11
+Configuration and Error Handling 🔧
+1. Configuration Management
+Location:
+config/settings.py
+Issues:
+Missing validation for required environment variables
+No type checking for configuration values
+Limited error messages for missing config
+Improved Implementation:
+python
+# consistently# Use context managers consistently
+defdef
+execute_operationsexecute_table_operations
+((
+selfself
+,,
+conn
+))
+::
+trytry
+::
+withwith
+conn
+..
+cursorcursor
+((
+))
+asas
+cursor
+::
+# here# All operations here
+passpass
+exceptexcept
+Exception
+asas
+e
+::
+# errors# Handle errors
+passpass
+# closed# Cursor automatically closed
+2. Error Handling Improvements
+Location:
+utils/etl_helpers.py
+Current Issues:
+Generic exception handling
+Limited error context
+python
+fromfrom
+typing
+importimport
+Optional
+importimport
+os
+fromfrom
+dotenv
+importimport
+load_dotenv
+classclass
+ConfigErrorConfigError
+((
+ExceptionException
+))
+::
+passpass
+classclass
+SettingsSettings
+::
+defdef
+__init____init__
+((
+selfself
+))
+::
+load_dotenv
+((
+))
+self
+..
+_settings_validate_required_settings
+((
+))
+defdef
+_settings_validate_required_settings
+((
+selfself
+))
+::
+required
+==
+{{
+'STR''MSSQL_TARGET_CONN_STR'
+::
+'string''Database connection string'
+,,
+'DIR''EJ_CSV_DIR'
+::
+'directory''CSV files directory'
+}}
+missing
+==
+[[
+]]
+forfor
+key
+,,
+description
+inin
+required
+..
+itemsitems
+((
+))
+::
+ifif
+notnot
+os
+..
+getenvgetenv
+((
+keykey
+))
+::
+missing
+..
+appendappend
+((
+f"
+{{
+keykey
+}}
+:
+{{
+descriptiondescription
+}}
+""
+))
+ifif
+missing
+::
+raiseraise
+ConfigError
+((
+f"Missing required settings:\n"
+++
+"\n""\n"
+..
+joinjoin
+((
+missingmissing
+))
+))
+@property@property
+defdef
+target_stringtarget_connection_string
+((
+selfself
+))
+--
+>>
+strstr
+::
+returnreturn
+os
+..
+getenvgetenv
+((
+'STR''MSSQL_TARGET_CONN_STR'
+))
+@property@property
+defdef
+csv_directorycsv_directory
+((
+selfself
+))
+--
+>>
+strstr
+::
+returnreturn
+os
+..
+getenvgetenv
+((
+'DIR''EJ_CSV_DIR'
+))
+No retry mechanisms for transient failures
+Improved Error Handling:
+Performance Optimizations 🚀
+1. Bulk Operations
+Location:
+base_importer.py
+-
+import_joins()
+Current Issue:
+python
+classclass
+ETLErrorETLError
+((
+ExceptionException
+))
+::
+"""operations""""""Base exception for ETL operations"""
+passpass
+classclass
+SQLExecutionErrorSQLExecutionError
+((
+ETLErrorETLError
+))
+::
+"""errors""""""SQL execution specific errors"""
+defdef
+__init____init__
+((
+selfself
+,,
+sql
+,,
+original_error
+,,
+table_name
+==
+NoneNone
+))
+::
+self
+..
+sql
+==
+sql
+self
+..
+original_error
+==
+original_error
+self
+..
+table_name
+==
+table_name
+supersuper
+((
+))
+..
+__init____init__
+((
+f"SQL execution failed for
+{{
+table_nametable_name
+}}
+:
+{{
+original_errororiginal_error
+}}
+""
+))
+defdef
+run_retryrun_sql_step_with_retry
+((
+connconn
+,,
+name
+::
+strstr
+,,
+sql
+::
+strstr
+,,
+max_retries
+==
+33
+,,
+timeout
+==
+300300
+))
+::
+"""failures""""""Execute SQL with retry logic for transient failures"""
+forfor
+attempt
+inin
+rangerange
+((
+max_retriesmax_retries
+))
+::
+trytry
+::
+returnreturn
+run_sql_step
+((
+connconn
+,,
+name
+,,
+sql
+,,
+timeout
+))
+exceptexcept
+pyodbc
+..
+Error
+asas
+e
+::
+ifif
+attempt
+====
+max_retries
+--
+11
+::
+raiseraise
+SQLExecutionError
+((
+sqlsql
+,,
+e
+,,
+name
+))
+ifif
+"timeout""timeout"
+inin
+strstr
+((
+ee
+))
+..
+lowerlower
+((
+))
+::
+logger
+..
+warningwarning
+((
+f"Timeout on attempt
+{{
+attempt
+++
+11
+}}
+, retrying...", retrying..."
+))
+time
+..
+sleepsleep
+((
+22
+****
+attempt
+))
+# backoff# Exponential backoff
+elseelse
+::
+raiseraise
+Optimization:
+2. Memory Management
+Location:
+04_LOBColumns.py
+-
+gather_lob_columns()
+Issue:
+Loading all rows into memory at once
+Optimization:
+python
+# individually# Using pandas to_sql for each table individually
+dfdf
+..
+to_sqlto_sql
+((
+table_nametable_name
+,,
+con
+==
+engineengine
+,,
+if_exists
+==
+'replace''replace'
+))
+python
+defdef
+import_optimizedimport_joins_optimized
+((
+selfself
+))
+::
+"""performance""""""Import joins with better performance"""
+# SQLAlchemy# Use bulk insert with SQLAlchemy
+fromfrom
+sqlalchemy
+importimport
+create_engine
+,,
+MetaData
+,,
+Table
+engine
+==
+self
+..
+_engine_get_sqlalchemy_engine
+((
+))
+# method# Use bulk insert method
+df
+..
+to_sqlto_sql
+((
+table_name
+,,
+con
+==
+engineengine
+,,
+if_exists
+==
+'replace''replace'
+,,
+index
+==
+FalseFalse
+,,
+method
+==
+'multi''multi'
+,,
+# insert# Use bulk insert
+chunksize
+==
+10001000
+# chunks# Process in chunks
+))
+Code Quality Issues 🧹
+1. Magic Numbers and Constants
+Issues:
+Hard-coded timeouts (300 seconds)
+Magic numbers throughout codebase
+Database names hard-coded in SQL files
+Improvements:
+python
+defdef
+gather_optimizedgather_lob_columns_optimized
+((
+selfself
+,,
+conn
+,,
+config
+,,
+log_file
+))
+::
+"""memory""""""Process LOB columns in batches to manage memory"""
+cursor
+==
+conn
+..
+cursorcursor
+((
+))
+# sets# Use server-side cursor for large result sets
+cursor
+..
+executeexecute
+((
+"ONLY""SET CURSOR_TYPE FORWARD_ONLY"
+))
+cursor
+..
+executeexecute
+((
+queryquery
+))
+batch_size
+==
+100100
+whilewhile
+TrueTrue
+::
+rows
+==
+cursor
+..
+fetchmanyfetchmany
+((
+batch_sizebatch_size
+))
+ifif
+notnot
+rows
+::
+breakbreak
+# batch# Process batch
+self
+..
+_batch_process_lob_batch
+((
+rowsrows
+,,
+conn
+,,
+config
+))
+2. Method Length and Complexity
+Location:
+base_importer.py
+-
+execute_table_operations()
+Issue:
+Method is too long (100+ lines) and has multiple responsibilities
+Recommendation:
+Break into smaller methods:
+python
+# py# Add to config/settings.py
+classclass
+ETLConstantsETLConstants
+::
+DEFAULT_SQL_TIMEOUT
+==
+300300
+DEFAULT_BULK_INSERT_BATCH_SIZE
+==
+10001000
+MAX_RETRY_ATTEMPTS
+==
+33
+CONNECTION_TIMEOUT
+==
+3030
+# settings# Progress bar settings
+PROGRESS_UPDATE_INTERVAL
+==
+0.10.1
+# thresholds# LOB column thresholds
+LOB_LENGTH_THRESHOLD
+==
+50005000
+MAX_VARCHAR_LENGTH
+==
+80008000
+python
+defdef
+execute_operationsexecute_table_operations
+((
+selfself
+,,
+conn
+))
+::
+"""organization""""""Execute table operations with better organization"""
+rows
+==
+self
+..
+_rows_get_conversion_rows
+((
+connconn
+))
+results
+==
+self
+..
+_rows_process_table_rows
+((
+connconn
+,,
+rows
+))
+self
+..
+_summary_log_operation_summary
+((
+resultsresults
+))
+defdef
+_rows_get_conversion_rows
+((
+selfself
+,,
+conn
+))
+::
+"""database""""""Get rows to convert from database"""
+# here# Query logic here
+defdef
+_rows_process_table_rows
+((
+selfself
+,,
+conn
+,,
+rows
+))
+::
+"""row""""""Process each table row"""
+# here# Processing logic here
+defdef
+_operation_execute_single_table_operation
+((
+selfself
+,,
+conn
+,,
+row_dict
+))
+::
+"""table""""""Execute drop and select for single table"""
+# here# Single table logic here
+SQL Script Issues 📄
+1. Hard-coded Database Names
+Location:
+All SQL scripts in
+sql_scripts/
+Issue:
+Problem:
+Not portable to different environments
+Current Solution Assessment:
+Your
+load_sql()
+function already handles this with string replacement,which is good but could be more robust:
+2. SQL Injection in Dynamic Queries
+Location:
+SQL scripts with dynamic content
+Issue:
+Table and column names constructed dynamically
+sql
+-- approach-- Current approach
+SELECTSELECT
+**
+INTOINTO
+ELPaso_TX
+..
+dbodbo
+..
+NewTable
+FROMFROM
+Justice
+..
+dbodbo
+..
+OldTableOldTable
+python
+# implementation# Current implementation
+sql
+==
+sql
+..
+replacereplace
+((
+'TX''ELPaso_TX'
+,,
+db_name
+))
+..
+replacereplace
+((
+'TX''ElPaso_TX'
+,,
+db_name
+))
+# approach# More robust approach
+importimport
+re
+defdef
+replace_referencesreplace_database_references
+((
+sqlsql
+::
+strstr
+,,
+target_db
+::
+strstr
+))
+--
+>>
+strstr
+::
+"""safely""""""Replace database references more safely"""
+patterns
+==
+[[
+r'\b'r'\bELPaso_TX\b'
+,,
+r'\b'r'\bElPaso_TX\b'
+,,
+r'\b'r'\bEL[Pp]aso_TX\b'
+# variations# Handle case variations
+]]
+forfor
+pattern
+inin
+patterns
+::
+sql
+==
+re
+..
+subsub
+((
+patternpattern
+,,
+target_db
+,,
+sql
+,,
+flags
+==
+rere
+..
+IGNORECASEIGNORECASE
+))
+returnreturn
+sql
+Recommendation:
+Use SQL Server's
+QUOTENAME()
+function more consistently
+Testing Recommendations 🧪
+1. Unit Tests Needed
+2. Integration Tests
+Recommendations Summary 📋
+python
+# py# tests/test_base_importer.py
+importimport
+pytest
+fromfrom
+unittest
+..
+mock
+importimport
+Mock
+,,
+patch
+fromfrom
+etl
+..
+base_importer
+importimport
+BaseDBImporter
+classclass
+TestBaseDBImporterTestBaseDBImporter
+::
+defdef
+test_varstest_validate_environment_missing_vars
+((
+selfself
+))
+::
+"""variables""""""Test environment validation with missing variables"""
+withwith
+patch
+..
+dictdict
+((
+'environ''os.environ'
+,,
+{{
+}}
+,,
+clear
+==
+TrueTrue
+))
+::
+importer
+==
+BaseDBImporter
+((
+))
+withwith
+pytest
+..
+raisesraises
+((
+EnvironmentErrorEnvironmentError
+))
+::
+importer
+..
+validate_environmentvalidate_environment
+((
+))
+defdef
+test_attempttest_sanitize_sql_injection_attempt
+((
+selfself
+))
+::
+"""attempts""""""Test SQL sanitization blocks injection attempts"""
+malicious_sql
+==
+"'; --""'; DROP TABLE users; --"
+# reject# Should either sanitize or reject
+result
+==
+sanitize_sql
+((
+malicious_sqlmalicious_sql
+))
+assertassert
+"TABLE""DROP TABLE"
+notnot
+inin
+result
+oror
+result
+isis
+NoneNone
+python
+# py# tests/test_integration.py
+defdef
+test_importtest_end_to_end_justice_import
+((
+))
+::
+"""process""""""Test complete Justice DB import process"""
+# database# Set up test database
+# import# Run import
+# results# Verify results
+passpass
+Immediate (High Priority)
+1.
+Fix SQL injection vulnerabilities
+- Implement parameterized queries
+2.
+Improve transaction management
+- Use proper transaction scoping
+3.
+Add input validation
+- Validate all user inputs and SQL identifiers
+4.
+Fix resource management
+- Use context managers for all database resources
+Medium Priority
+5.
+Add comprehensive error handling
+- Implement specific exception types
+6.
+Optimize memory usage
+- Process large datasets in batches
+7.
+Add logging improvements
+- Structured logging with correlation IDs
+8.
+Implement retry logic
+- Handle transient database failures
+Low Priority
+9.
+Add unit tests
+- Comprehensive test coverage
+10.
+Refactor large methods
+- Break down complex operations
+11.
+Add performance monitoring
+- Track operation timing and success rates
+12.
+Improve documentation
+- Add docstrings and usage examples
+Overall Assessment
+This is a solid ETL solution with good architectural decisions. The main concerns are around security (SQLinjection) and robustness (error handling, transactions). With the recommended changes, this would be aproduction-ready enterprise ETL system.
+Security Score: 3/5
+(SQL injection risks)
+Maintainability Score: 4/5
+(well organized)
+PerformanceScore: 3/5
+(room for optimization)
+Reliability Score: 3/5
+(needs better error handling)
+The modular design and inheritance structure make this easily extensible for additional database types,which is excellent for your growing requirements.

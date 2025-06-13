@@ -30,3 +30,19 @@ MYSQL_CONN_DICT = {
     'database': os.getenv("MYSQL_DATABASE"),
 }
 
+
+class ETLConstants:
+    """Default values used across the ETL pipeline."""
+
+    #: Default timeout for SQL statements in seconds
+    DEFAULT_SQL_TIMEOUT = 300
+
+    #: Default number of rows to insert per batch when doing bulk inserts
+    DEFAULT_BULK_INSERT_BATCH_SIZE = 100
+
+    #: Maximum number of retry attempts for transient failures
+    MAX_RETRY_ATTEMPTS = 3
+
+    #: Default connection timeout when establishing database connections
+    CONNECTION_TIMEOUT = 30
+

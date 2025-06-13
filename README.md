@@ -43,3 +43,24 @@ Error details are written to log files. By default the logs are created in the
 current working directory with names like `PreDMSErrorLog_Justice.txt`. Set the
 `EJ_LOG_DIR` environment variable to override the directory or pass a full path
 using the `--log-file` argument when running an individual script.
+
+## Examples
+
+Run the Justice ETL with a JSON configuration file and custom timeout. Empty
+tables are included by setting an environment variable:
+
+```bash
+SQL_TIMEOUT=600 INCLUDE_EMPTY_TABLES=1 \
+python 01_JusticeDB_Import.py --config-file config/values.json \
+  --log-file logs/justice.log
+```
+
+The Tk helper can run all scripts sequentially while still honouring the retry
+logic built into `utils/etl_helpers.run_sql_step_with_retry`:
+
+```bash
+SQL_TIMEOUT=600 python run_etl.py
+```
+
+If a transient `pyodbc.Error` occurs the command will be retried up to
+`ETLConstants.MAX_RETRY_ATTEMPTS` times.

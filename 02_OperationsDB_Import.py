@@ -1,4 +1,13 @@
+"""ETL script to migrate Operations database tables.
+
+The script reads SQL under ``sql_scripts/operations`` and applies it to the
+database defined by the ``MSSQL_TARGET_CONN_STR`` environment variable.  Command
+line arguments mirror those of ``01_JusticeDB_Import.py`` allowing CSV and log
+locations to be overridden.
+"""
+
 import logging
+from utils.logging_helper import setup_logging, operation_counts
 import time
 import json
 import sys
@@ -24,7 +33,6 @@ from utils.etl_helpers import (
 )
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
 DEFAULT_LOG_FILE = "PreDMSErrorLog_Operations.txt"
 
@@ -104,9 +112,15 @@ class OperationsDBImporter(BaseDBImporter):
 
 def main():
     """Main entry point for Operations DB Import."""
+    setup_logging()
     load_dotenv()
     importer = OperationsDBImporter()
     importer.run()
+    logger.info(
+        "Run completed - successes: %s failures: %s",
+        operation_counts["success"],
+        operation_counts["failure"],
+    )
 
 if __name__ == "__main__":
     main()
