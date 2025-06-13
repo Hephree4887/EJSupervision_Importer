@@ -3,14 +3,16 @@
 import logging
 import uuid
 from contextvars import ContextVar
+from typing import Optional
 
-correlation_id_var: ContextVar[str | None] = ContextVar("correlation_id", default=None)
+correlation_id_var: ContextVar[Optional[str]] = ContextVar("correlation_id", default=None)
 
 class CorrelationIdFilter(logging.Filter):
     """Inject the correlation ID into all log records."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        record.correlation_id = correlation_id_var.get() or "N/A"
+        if not hasattr(record, 'correlation_id'):
+            record.correlation_id = '-'  # Default value when not set
         return True
 
 operation_counts = {"success": 0, "failure": 0}
@@ -45,4 +47,9 @@ def setup_logging(level: int = logging.INFO) -> str:
         root.addHandler(handler)
 
     root.addFilter(CorrelationIdFilter())
+
+    # Add the filter to each handler
+    for handler in logging.root.handlers:
+        handler.addFilter(CorrelationIdFilter())
+
     return cid

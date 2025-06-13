@@ -19,7 +19,8 @@ import urllib
 import sqlalchemy
 from db.mssql import get_target_connection
 from tqdm import tqdm
-from etl import core,BaseDBImporter
+from etl import core
+from etl import BaseDBImporter
 from sqlalchemy.types import Text
 import tkinter as tk
 from tkinter import N, messagebox

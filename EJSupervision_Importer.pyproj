@@ -27,6 +27,7 @@
     <Compile Include="02_OperationsDB_Import.py" />
     <Compile Include="03_FinancialDB_Import.py" />
     <Compile Include="04_LOBColumns.py" />
+    <Compile Include="etl\base.py" />
     <Compile Include="etl\base_importer.py" />
     <Compile Include="config\settings.py" />
     <Compile Include="config\__init__.py" />
@@ -34,11 +35,13 @@
     <Compile Include="db\mysql.py" />
     <Compile Include="db\__init__.py" />
     <Compile Include="etl\core.py" />
+    <Compile Include="etl\__init__.py" />
     <Compile Include="run_etl.py" />
     <Compile Include="tests\test_mssql.py" />
     <Compile Include="tests\test_mysql.py" />
     <Compile Include="tests\__init__.py" />
     <Compile Include="utils\etl_helpers.py" />
+    <Compile Include="utils\logging_helper.py" />
     <Compile Include="utils\__init__.py" />
   </ItemGroup>
   <ItemGroup>
