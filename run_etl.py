@@ -30,7 +30,9 @@ SCRIPTS = [
     ("LOB Column Processing", "04_LOBColumns.py"),
 ]
 
-CONFIG_FILE = os.path.join("config", "values.json")
+# Use an absolute path so the helper works regardless of the current
+# working directory.
+CONFIG_FILE = os.path.join(os.path.dirname(__file__), "config", "values.json")
 # Add this code to run_etl.py to make it work with our new modular structure
 
 def run_sequential_etl(env):
@@ -230,7 +232,7 @@ class App(tk.Tk):
                 with open(CONFIG_FILE, 'r') as f:
                     return json.load(f)
         except Exception as e:
-            print(f"Error loading config: {e}")
+            logger.error(f"Error loading config: {e}")
         return {
             "driver": "",
             "server": "",
@@ -258,7 +260,7 @@ class App(tk.Tk):
             with open(CONFIG_FILE, 'w') as f:
                 json.dump(config, f, indent=2)
         except Exception as e:
-            print(f"Error saving config: {e}")
+            logger.error(f"Error saving config: {e}")
     
     def _create_connection_widgets(self):
         """Create entry fields for connection parameters and CSV directory."""
@@ -323,7 +325,7 @@ class App(tk.Tk):
         tk.Label(self.script_frame, text="Current Status", font=("Arial", 10, "bold")).grid(row=0, column=2, sticky="w", padx=5, pady=2)
 
         self.run_buttons = {}
-        for idx, (label, path) in enumerate(sorted(SCRIPTS, key=lambda x: x[1]), 1):
+        for idx, (label, path) in enumerate(SCRIPTS, 1):
             tk.Label(self.script_frame, text=path).grid(row=idx, column=0, sticky="w", padx=5, pady=2)
             
             # Store button reference so we can disable/enable it

@@ -1,10 +1,12 @@
 """Helper functions for executing SQL statements with logging and retries."""
 
 import logging
-from utils.logging_helper import record_success, record_failure
 import os
 import time
-from typing import Optional, Any, List
+from contextlib import contextmanager
+from typing import Any, Generator, List, Optional
+
+from utils.logging_helper import record_success, record_failure
 
 from config import ETLConstants
 
@@ -25,13 +27,35 @@ class SQLExecutionError(ETLError):
 logger = logging.getLogger(__name__)
 
 
-def log_exception_to_file(error_details: str, log_path: str):
+def log_exception_to_file(error_details: str, log_path: str) -> None:
     """Append exception details to a log file."""
     try:
         with open(log_path, "a", encoding="utf-8") as f:
             f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {error_details}\n")
     except Exception as file_exc:
         logger.error(f"Failed to write to error log file: {file_exc}")
+
+
+@contextmanager
+def transaction_scope(conn: Any) -> Generator[Any, None, None]:
+    """Context manager to run a series of statements in a transaction.
+
+    It temporarily disables ``autocommit`` on the provided connection and
+    ensures that the connection is committed if the block succeeds or
+    rolled back if an exception is raised.  The original ``autocommit``
+    setting is restored afterwards.
+    """
+
+    original_autocommit = getattr(conn, "autocommit", False)
+    conn.autocommit = False
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.autocommit = original_autocommit
 def load_sql(filename: str, db_name: Optional[str] = None) -> str:
     """Load a SQL file from the sql_scripts directory.
 
@@ -47,8 +71,16 @@ def load_sql(filename: str, db_name: Optional[str] = None) -> str:
         SQL content with database name replaced if provided
     """
     base_dir = os.path.dirname(os.path.dirname(__file__)) if '__file__' in globals() else os.getcwd()
-    # The sql_scripts directory lives at the repo root
-    sql_path = os.path.join(base_dir, 'sql_scripts', filename)
+    scripts_dir = os.path.join(base_dir, 'sql_scripts')
+    # Normalize path to avoid path traversal outside sql_scripts
+    sql_path = os.path.abspath(os.path.normpath(os.path.join(scripts_dir, filename)))
+
+    # Ensure the final path is within the expected sql_scripts directory
+    scripts_dir_abs = os.path.abspath(scripts_dir)
+    if not sql_path.startswith(scripts_dir_abs + os.sep):
+        logger.error(f"Attempted SQL path traversal: {filename}")
+        raise ValueError(f"Invalid SQL file path: {filename}")
+
     if not os.path.exists(sql_path):
         logger.error(f"SQL file not found: {sql_path}")
         raise FileNotFoundError(f"SQL file not found: {sql_path}")
@@ -63,7 +95,7 @@ def load_sql(filename: str, db_name: Optional[str] = None) -> str:
     
     return sql
 def run_sql_step(
-    conn, name: str, sql: str, timeout: int = ETLConstants.DEFAULT_SQL_TIMEOUT
+    conn: Any, name: str, sql: str, timeout: int = ETLConstants.DEFAULT_SQL_TIMEOUT
 ) -> Optional[List[Any]]:
     """Execute a single SQL statement and fetch any results.
     
@@ -104,7 +136,7 @@ def run_sql_step(
 
 
 def run_sql_step_with_retry(
-    conn,
+    conn: Any,
     name: str,
     sql: str,
     timeout: int = ETLConstants.DEFAULT_SQL_TIMEOUT,
@@ -131,8 +163,8 @@ def run_sql_step_with_retry(
 
             time.sleep(2**attempt)
 def run_sql_script(
-    conn, name: str, sql: str, timeout: int = ETLConstants.DEFAULT_SQL_TIMEOUT
-):
+    conn: Any, name: str, sql: str, timeout: int = ETLConstants.DEFAULT_SQL_TIMEOUT
+) -> None:
     """Execute a multi-statement SQL script.
     
     Args:
@@ -180,9 +212,9 @@ def run_sql_script(
         record_failure()
         raise SQLExecutionError(sql, e, table_name=name)
 def execute_sql_with_timeout(
-    conn,
+    conn: Any,
     sql: str,
-    params: Optional[tuple] = None,
+    params: Optional[tuple[Any, ...]] = None,
     timeout: int = ETLConstants.DEFAULT_SQL_TIMEOUT,
 ) -> Any:
     """Execute SQL with parameters and timeout.

@@ -26,4 +26,4 @@ def test_sanitize_sql_allows_normal_statements():
 def test_sanitize_sql_rejects_injection_attempt():
     malicious = "'; DROP TABLE users; --"
     result = sanitize_sql(malicious)
-    assert result == "" or "DROP TABLE" not in result
+    assert result == ""

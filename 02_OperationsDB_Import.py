@@ -13,6 +13,7 @@ import json
 import sys
 import os
 import argparse
+from typing import Any
 from dotenv import load_dotenv
 import pandas as pd
 import urllib
@@ -49,7 +50,7 @@ class OperationsDBImporter(BaseDBImporter):
     DEFAULT_LOG_FILE = "PreDMSErrorLog_Operations.txt"
     DEFAULT_CSV_FILE = "EJ_Operations_Selects_ALL.csv"
     
-    def parse_args(self):
+    def parse_args(self) -> argparse.Namespace:
         """Parse command line arguments for the Operations DB import script."""
         parser = argparse.ArgumentParser(description="Operations DB Import ETL Process")
         parser.add_argument(
@@ -81,7 +82,7 @@ class OperationsDBImporter(BaseDBImporter):
         )
         return parser.parse_args()
         
-    def execute_preprocessing(self, conn):
+    def execute_preprocessing(self, conn: Any) -> None:
         """Define supervision scope for Operations DB."""
         logger.info("Defining supervision scope...")
         steps = [
@@ -94,20 +95,20 @@ class OperationsDBImporter(BaseDBImporter):
         
         logger.info("All Staging steps completed successfully. Document Conversion Scope Defined.")
     
-    def prepare_drop_and_select(self, conn):
+    def prepare_drop_and_select(self, conn: Any) -> None:
         """Prepare SQL statements for dropping and selecting data."""
         logger.info("Gathering list of Operations tables with SQL Commands to be migrated.")
         additional_sql = load_sql('operations/gather_drops_and_selects_operations.sql', self.db_name)
         run_sql_script(conn, 'gather_drops_and_selects_operations', additional_sql, timeout=self.config['sql_timeout'])
     
-    def update_joins_in_tables(self, conn):
+    def update_joins_in_tables(self, conn: Any) -> None:
         """Update the TablesToConvert table with JOINs."""
         logger.info("Updating JOINS in TablesToConvert List")
         update_joins_sql = load_sql('operations/update_joins_operations.sql', self.db_name)
         run_sql_script(conn, 'update_joins', update_joins_sql, timeout=self.config['sql_timeout'])
         logger.info("Updating JOINS for Operations tables is complete.")
     
-    def get_next_step_name(self):
+    def get_next_step_name(self) -> str:
         """Return the name of the next step in the ETL process."""
         return "Financial migration"
 

@@ -89,51 +89,42 @@ def load_config(config_file=None, default_config=None):
     return config
 
 def sanitize_sql(sql_text):
-    """Enhanced SQL sanitization with better encoding handling."""
+    """Return a sanitized SQL string or an empty string if suspicious patterns are detected."""
     if sql_text is None:
         return None
-    
+
     try:
-        # Ensure we're working with a proper string
         if isinstance(sql_text, bytes):
-            # Try UTF-8 first, then fall back to latin-1
-            try:
-                sql_text = sql_text.decode('utf-8')
-            except UnicodeDecodeError:
-                sql_text = sql_text.decode('latin-1', errors='replace')
-        
-        # Convert to string if it's not already
-        if not isinstance(sql_text, str):
+            sql_text = sql_text.decode('utf-8', errors='replace')
+        elif not isinstance(sql_text, str):
             sql_text = str(sql_text)
-        
-        # Remove problematic control characters
+
         sql_text = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]', '', sql_text)
-        
-        # Normalize Unicode
         sql_text = unicodedata.normalize('NFKC', sql_text)
 
-        # Basic guard against common injection patterns. If a pattern is
-        # detected return an empty string so the caller can decide how to
-        # handle it. This keeps legitimate statements like "DROP TABLE IF
-        # EXISTS" intact because those are not preceded by a trailing quote
-        # and semicolon.
-        injection_regex = re.compile(r"';\s*(drop|delete|insert|update)\s",
-                                    re.IGNORECASE)
+        patterns = [
+            r";\s*(?:drop|delete|truncate|alter)\s+",
+            r"--",
+            r"\bOR\b\s+1=1",
+        ]
+        injection_regex = re.compile("|".join(patterns), re.IGNORECASE)
         if injection_regex.search(sql_text):
             return ""
 
+        if sql_text.count("'") % 2 != 0 or sql_text.count('"') % 2 != 0:
+            return ""
+
         return sql_text
-        
+
     except Exception as e:
         logger.warning(f"SQL sanitization failed: {str(e)}")
-        # Last resort: convert to ASCII with replacement
         try:
             if isinstance(sql_text, bytes):
                 return sql_text.decode('ascii', errors='replace')
             else:
                 return str(sql_text).encode('ascii', errors='replace').decode('ascii')
-        except:
-            logger.error("Complete sanitization failure")
+        except Exception:
+            logger.error('Complete sanitization failure')
             return ""
 
 def safe_tqdm(iterable, **kwargs):

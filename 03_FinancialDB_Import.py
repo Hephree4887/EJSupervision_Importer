@@ -12,6 +12,7 @@ import json
 import sys
 import os
 import argparse
+from typing import Any
 from dotenv import load_dotenv
 import pandas as pd
 import urllib
@@ -48,7 +49,7 @@ class FinancialDBImporter(BaseDBImporter):
     DEFAULT_LOG_FILE = "PreDMSErrorLog_Financial.txt"
     DEFAULT_CSV_FILE = "EJ_Financial_Selects_ALL.csv"
     
-    def parse_args(self):
+    def parse_args(self) -> argparse.Namespace:
         """Parse command line arguments for the Financial DB import script."""
         parser = argparse.ArgumentParser(description="Financial DB Import ETL Process")
         parser.add_argument(
@@ -80,7 +81,7 @@ class FinancialDBImporter(BaseDBImporter):
         )
         return parser.parse_args()
         
-    def execute_preprocessing(self, conn):
+    def execute_preprocessing(self, conn: Any) -> None:
         """Define supervision scope for Financial DB."""
         logger.info("Defining supervision scope...")
         steps = [
@@ -93,22 +94,22 @@ class FinancialDBImporter(BaseDBImporter):
         
         logger.info("All Staging steps completed successfully. Supervision Scope Defined.")
     
-    def prepare_drop_and_select(self, conn):
+    def prepare_drop_and_select(self, conn: Any) -> None:
         """Prepare SQL statements for dropping and selecting data."""
         logger.info("Gathering list of Financial tables with SQL Commands to be migrated.")
         additional_sql = load_sql('financial/gather_drops_and_selects_financial.sql', self.db_name)
         run_sql_script(conn, 'gather_drops_and_selects_financial', additional_sql, timeout=self.config['sql_timeout'])
     
-    def update_joins_in_tables(self, conn):
+    def update_joins_in_tables(self, conn: Any) -> None:
         """Update the TablesToConvert table with JOINs."""
         logger.info("Updating JOINS in TablesToConvert List")
         update_joins_sql = load_sql('financial/update_joins_financial.sql', self.db_name)
         run_sql_script(conn, 'update_joins_financial', update_joins_sql, timeout=self.config['sql_timeout'])
         logger.info("Updating JOINS for Financial tables is complete.")
     
-    def get_next_step_name(self):
+    def get_next_step_name(self) -> str:
         """Return the name of the next step in the ETL process."""
-        return "LOB Column Processling"
+        return "LOB Column Processing"
 
 def main():
     """Main entry point for Financial DB Import."""

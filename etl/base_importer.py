@@ -1,12 +1,16 @@
 """Base class for database import operations."""
 
+from __future__ import annotations
+
 import logging
 import os
+import argparse
 import tkinter as tk
 from tkinter import messagebox
 import pandas as pd
 import urllib
 import sqlalchemy
+from typing import Any, Optional
 from sqlalchemy.types import Text
 
 from db.mssql import get_target_connection
@@ -15,6 +19,7 @@ from utils.etl_helpers import (
     run_sql_script,
     log_exception_to_file,
     run_sql_step_with_retry,
+    transaction_scope,
 )
 from etl.core import (
     sanitize_sql,
@@ -35,16 +40,16 @@ class BaseDBImporter:
     DEFAULT_LOG_FILE = "PreDMSErrorLog_Base.txt"
     DEFAULT_CSV_FILE = "EJ_Base_Selects_ALL.csv"
     
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the importer with default values."""
         self.config = None
         self.db_name = None
 
-    def parse_args(self):
+    def parse_args(self) -> argparse.Namespace:
         """Parse command line arguments - implement in subclasses."""
         raise NotImplementedError("Subclasses must implement parse_args()")
 
-    def validate_environment(self):
+    def validate_environment(self) -> None:
         """Validate required environment variables."""
         required_vars = {
             'MSSQL_TARGET_CONN_STR': "Database connection string is required",
@@ -59,7 +64,7 @@ class BaseDBImporter:
         
         validate_environment(required_vars, optional_vars)
 
-    def load_config(self, args):
+    def load_config(self, args: argparse.Namespace) -> None:
         """Load configuration from arguments and environment."""
         default_config = {
             "include_empty_tables": False,
@@ -94,7 +99,7 @@ class BaseDBImporter:
             self.config["csv_filename"]
         )
 
-    def import_joins(self):
+    def import_joins(self) -> sqlalchemy.engine.Engine:
         """Import JOIN statements from CSV to build selection queries."""
         logger.info(f"Importing JOINS from {self.DB_TYPE} Selects CSV")
         
@@ -135,122 +140,119 @@ class BaseDBImporter:
         logger.info(f"Successfully imported {len(df)} JOIN definitions from {csv_path}")
         return engine
 
-    def execute_table_operations(self, conn):
+    def execute_table_operations(self, conn: Any) -> None:
         """Execute DROP and SELECT INTO operations."""
         logger.info("Executing table operations (DROP/SELECT)")
         log_file = self.config['log_file']
-        
-        original_autocommit = conn.autocommit
-        conn.autocommit = False
+
         table_name = f"TablesToConvert_{self.DB_TYPE}" if self.DB_TYPE != 'Justice' else 'TablesToConvert'
         table_name = validate_sql_identifier(table_name)
 
+        db_name = validate_sql_identifier(self.db_name)
+        successful_tables = 0
+        failed_tables = 0
+
         try:
-            db_name = validate_sql_identifier(self.db_name)
-            # Use a robust query with explicit encoding handling
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    f"""
-                SELECT RowID, DatabaseName, SchemaName, TableName, fConvert, ScopeRowCount,
-                       CAST(Drop_IfExists AS NVARCHAR(MAX)) AS Drop_IfExists,
-                       CAST(CAST(Select_Into AS NVARCHAR(MAX)) + CAST(ISNULL(Joins, N'') AS NVARCHAR(MAX)) AS NVARCHAR(MAX)) AS [Select_Into]
-                FROM {db_name}.dbo.{table_name} S
-                WHERE fConvert=1
-                ORDER BY DatabaseName, SchemaName, TableName
-                """
-                )
+            with transaction_scope(conn):
+                # Use a robust query with explicit encoding handling
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        f"""
+                    SELECT RowID, DatabaseName, SchemaName, TableName, fConvert, ScopeRowCount,
+                           CAST(Drop_IfExists AS NVARCHAR(MAX)) AS Drop_IfExists,
+                           CAST(CAST(Select_Into AS NVARCHAR(MAX)) + CAST(ISNULL(Joins, N'') AS NVARCHAR(MAX)) AS NVARCHAR(MAX)) AS [Select_Into]
+                    FROM {db_name}.dbo.{table_name} S
+                    WHERE fConvert=1
+                    ORDER BY DatabaseName, SchemaName, TableName
+                    """
+                    )
 
-                rows = cursor.fetchall()
-                columns = [desc[0] for desc in cursor.description]
+                    rows = cursor.fetchall()
+                    columns = [desc[0] for desc in cursor.description]
 
-                successful_tables = 0
-                failed_tables = 0
+                    for idx, row in enumerate(safe_tqdm(rows, desc="Drop/Select", unit="table"), 1):
+                        try:
+                            row_dict = dict(zip(columns, row))
 
-                for idx, row in enumerate(safe_tqdm(rows, desc="Drop/Select", unit="table"), 1):
-                    try:
-                        row_dict = dict(zip(columns, row))
+                            # Enhanced sanitization
+                            drop_sql = sanitize_sql(row_dict.get('Drop_IfExists'))
+                            select_into_sql = sanitize_sql(row_dict.get('Select_Into'))
 
-                        # Enhanced sanitization
-                        drop_sql = sanitize_sql(row_dict.get('Drop_IfExists'))
-                        select_into_sql = sanitize_sql(row_dict.get('Select_Into'))
+                            table_name = validate_sql_identifier(row_dict.get('TableName'))
+                            schema_name = validate_sql_identifier(row_dict.get('SchemaName'))
+                            scope_row_count = row_dict.get('ScopeRowCount')
+                            full_table_name = f"{schema_name}.{table_name}"
 
-                        table_name = validate_sql_identifier(row_dict.get('TableName'))
-                        schema_name = validate_sql_identifier(row_dict.get('SchemaName'))
-                        scope_row_count = row_dict.get('ScopeRowCount')
-                        full_table_name = f"{schema_name}.{table_name}"
+                            # Skip if sanitization completely failed
+                            if not drop_sql or not select_into_sql:
+                                error_msg = f"Skipping row {idx} ({full_table_name}): SQL sanitization failed"
+                                logger.error(error_msg)
+                                log_exception_to_file(error_msg, log_file)
+                                failed_tables += 1
+                                continue
 
-                        # Skip if sanitization completely failed
-                        if not drop_sql or not select_into_sql:
-                            error_msg = f"Skipping row {idx} ({full_table_name}): SQL sanitization failed"
+                            # Skip empty tables unless configured to include them
+                            if not self.config['include_empty_tables'] and (
+                                scope_row_count is None or int(scope_row_count) <= 0
+                            ):
+                                logger.info(
+                                    f"Skipping Select INTO for {full_table_name}: scope_row_count is {scope_row_count}"
+                                )
+                                continue
+
+                            # Execute with individual error handling
+                            if drop_sql.strip():
+                                logger.info(
+                                    f"RowID:{idx} Drop If Exists:({self.DB_TYPE}.{full_table_name})"
+                                )
+                                try:
+                                    run_sql_step_with_retry(
+                                        conn,
+                                        f"Drop {full_table_name}",
+                                        drop_sql,
+                                        timeout=self.config['sql_timeout'],
+                                    )
+
+                                    if select_into_sql.strip():
+                                        logger.info(
+                                            f"RowID:{idx} Select INTO:({self.DB_TYPE}.{full_table_name})"
+                                        )
+                                        run_sql_step_with_retry(
+                                            conn,
+                                            f"SelectInto {full_table_name}",
+                                            select_into_sql,
+                                            timeout=self.config['sql_timeout'],
+                                        )
+
+                                    conn.commit()
+                                    successful_tables += 1
+
+                                except Exception as sql_error:
+                                    conn.rollback()
+                                    error_msg = (
+                                        f"SQL execution error for row {idx} ({full_table_name}): {str(sql_error)}"
+                                    )
+                                    logger.error(error_msg)
+                                    log_exception_to_file(error_msg, log_file)
+                                    failed_tables += 1
+                                    # Continue with next table instead of stopping
+
+                        except Exception as row_error:
+                            error_msg = f"Row processing error for row {idx}: {str(row_error)}"
                             logger.error(error_msg)
                             log_exception_to_file(error_msg, log_file)
                             failed_tables += 1
                             continue
-
-                        # Skip empty tables unless configured to include them
-                        if not self.config['include_empty_tables'] and (
-                            scope_row_count is None or int(scope_row_count) <= 0
-                        ):
-                            logger.info(
-                                f"Skipping Select INTO for {full_table_name}: scope_row_count is {scope_row_count}"
-                            )
-                            continue
-
-                        # Execute with individual error handling
-                        if drop_sql.strip():
-                            logger.info(
-                                f"RowID:{idx} Drop If Exists:({self.DB_TYPE}.{full_table_name})"
-                            )
-                            try:
-                                run_sql_step_with_retry(
-                                    conn,
-                                    f"Drop {full_table_name}",
-                                    drop_sql,
-                                    timeout=self.config['sql_timeout'],
-                                )
-
-                                if select_into_sql.strip():
-                                    logger.info(
-                                        f"RowID:{idx} Select INTO:({self.DB_TYPE}.{full_table_name})"
-                                    )
-                                    run_sql_step_with_retry(
-                                        conn,
-                                        f"SelectInto {full_table_name}",
-                                        select_into_sql,
-                                        timeout=self.config['sql_timeout'],
-                                    )
-
-                                conn.commit()
-                                successful_tables += 1
-
-                            except Exception as sql_error:
-                                conn.rollback()
-                                error_msg = (
-                                    f"SQL execution error for row {idx} ({full_table_name}): {str(sql_error)}"
-                                )
-                                logger.error(error_msg)
-                                log_exception_to_file(error_msg, log_file)
-                                failed_tables += 1
-                                # Continue with next table instead of stopping
-
-                    except Exception as row_error:
-                        error_msg = f"Row processing error for row {idx}: {str(row_error)}"
-                        logger.error(error_msg)
-                        log_exception_to_file(error_msg, log_file)
-                        failed_tables += 1
-                        continue
 
         except Exception as query_error:
             error_msg = f"Fatal query error: {str(query_error)}"
             logger.error(error_msg)
             log_exception_to_file(error_msg, log_file)
             raise
-        finally:
-            conn.autocommit = original_autocommit
-            
+
         logger.info(f"Table operations completed: {successful_tables} successful, {failed_tables} failed")
 
-    def create_primary_keys(self, conn):
+    def create_primary_keys(self, conn: Any) -> None:
         """Create primary keys and NOT NULL constraints."""
         if self.config['skip_pk_creation']:
             logger.info("Skipping primary key and constraint creation as requested in configuration")
@@ -271,33 +273,32 @@ class BaseDBImporter:
         pk_sql = load_sql(f'{self.DB_TYPE.lower()}/{pk_script_name}.sql', self.db_name)
         
         run_sql_script(conn, pk_script_name, pk_sql, timeout=self.config['sql_timeout'])
-        
-        pk_original_autocommit = conn.autocommit
-        conn.autocommit = False
+
         db_name = validate_sql_identifier(self.db_name)
-        with conn.cursor() as cursor:
-            cursor.execute(
-                f"""
-            WITH CTE_PKS AS (
-                SELECT 1 AS TYPEY, S.DatabaseName, S.SchemaName, S.TableName, S.Script
-                FROM {db_name}.dbo.{pk_table} S
-                WHERE S.ScriptType='NOT_NULL'
-                UNION
-                SELECT 2 AS TYPEY, S.DatabaseName, S.SchemaName, S.TableName, S.Script
-                FROM {db_name}.dbo.{pk_table} S
-                WHERE S.ScriptType='PK'
-            )
-            SELECT S.TYPEY, TTC.ScopeRowCount, S.DatabaseName, S.SchemaName, S.TableName,
-                   REPLACE(S.Script, 'FLAG NOT NULL', 'BIT NOT NULL') AS [Script], TTC.fConvert
-            FROM CTE_PKS S
-            INNER JOIN {db_name}.dbo.{tables_table} TTC WITH (NOLOCK)
-                ON S.SCHEMANAME=TTC.SchemaName AND S.TABLENAME=TTC.TableName
-            WHERE TTC.fConvert=1
-            ORDER BY S.SCHEMANAME, S.TABLENAME, S.TYPEY
-            """
-            )
-            rows = cursor.fetchall()
-            columns = [desc[0] for desc in cursor.description]
+        with transaction_scope(conn):
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    f"""
+                WITH CTE_PKS AS (
+                    SELECT 1 AS TYPEY, S.DatabaseName, S.SchemaName, S.TableName, S.Script
+                    FROM {db_name}.dbo.{pk_table} S
+                    WHERE S.ScriptType='NOT_NULL'
+                    UNION
+                    SELECT 2 AS TYPEY, S.DatabaseName, S.SchemaName, S.TableName, S.Script
+                    FROM {db_name}.dbo.{pk_table} S
+                    WHERE S.ScriptType='PK'
+                )
+                SELECT S.TYPEY, TTC.ScopeRowCount, S.DatabaseName, S.SchemaName, S.TableName,
+                       REPLACE(S.Script, 'FLAG NOT NULL', 'BIT NOT NULL') AS [Script], TTC.fConvert
+                FROM CTE_PKS S
+                INNER JOIN {db_name}.dbo.{tables_table} TTC WITH (NOLOCK)
+                    ON S.SCHEMANAME=TTC.SchemaName AND S.TABLENAME=TTC.TableName
+                WHERE TTC.fConvert=1
+                ORDER BY S.SCHEMANAME, S.TABLENAME, S.TYPEY
+                """
+                )
+                rows = cursor.fetchall()
+                columns = [desc[0] for desc in cursor.description]
 
             for idx, row in enumerate(safe_tqdm(rows, desc="PK Creation", unit="table"), 1):
                 row_dict = dict(zip(columns, row))
@@ -325,10 +326,9 @@ class BaseDBImporter:
                         logger.error(error_msg)
                         log_exception_to_file(error_msg, log_file)
 
-        conn.autocommit = pk_original_autocommit
         logger.info(f"All Primary Key/NOT NULL statements executed FOR THE {self.DB_TYPE} DATABASE.")
 
-    def show_completion_message(self, next_step_name=None):
+    def show_completion_message(self, next_step_name: Optional[str] = None) -> bool:
         """Show a message box indicating completion and asking to continue."""
         root = tk.Tk()
         root.withdraw()  # Hide the main window
@@ -347,7 +347,7 @@ class BaseDBImporter:
             root.destroy()
             return False
 
-    def run(self):
+    def run(self) -> bool:
         """Template method - main execution flow."""
         try:
             # Parse command line args and load config
@@ -419,18 +419,18 @@ class BaseDBImporter:
     
     # Methods that must be implemented by subclasses
     
-    def execute_preprocessing(self, conn):
+    def execute_preprocessing(self, conn: Any) -> None:
         """Execute database-specific preprocessing steps."""
         raise NotImplementedError("Subclasses must implement execute_preprocessing()")
     
-    def prepare_drop_and_select(self, conn):
+    def prepare_drop_and_select(self, conn: Any) -> None:
         """Prepare SQL statements for dropping and selecting data."""
         raise NotImplementedError("Subclasses must implement prepare_drop_and_select()")
     
-    def update_joins_in_tables(self, conn):
+    def update_joins_in_tables(self, conn: Any) -> None:
         """Update tables with JOINs."""
         raise NotImplementedError("Subclasses must implement update_joins_in_tables()")
     
-    def get_next_step_name(self):
+    def get_next_step_name(self) -> str:
         """Return the name of the next step in the ETL process."""
         raise NotImplementedError("Subclasses must implement get_next_step_name()")

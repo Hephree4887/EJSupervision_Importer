@@ -18,7 +18,9 @@ from utils.etl_helpers import (
     run_sql_step,
     run_sql_script,
     run_sql_step_with_retry,
+    load_sql,
     SQLExecutionError,
+    transaction_scope,
 )
 
 class DummyCursor:
@@ -49,11 +51,18 @@ class DummyConn:
         self.fail = fail
         self.fail_sql = fail_sql
         self.fail_times = fail_times
+        self.autocommit = True
+        self.commits = 0
+        self.rollbacks = 0
 
     def cursor(self):
         return DummyCursor(self.fail, self.fail_sql, conn=self)
+
     def commit(self):
-        pass
+        self.commits += 1
+
+    def rollback(self):
+        self.rollbacks += 1
 
 
 def test_run_sql_step_success():
@@ -91,3 +100,34 @@ def test_run_sql_step_with_retry_retries(monkeypatch):
         conn, 'test', 'SELECT 1', max_retries=ETLConstants.MAX_RETRY_ATTEMPTS
     )
     assert result == [('row',)]
+
+
+def test_load_sql_valid_path():
+    sql = load_sql('misc/gather_lobs.sql')
+    assert 'CREATE TABLE' in sql
+
+
+def test_load_sql_path_traversal():
+    with pytest.raises(ValueError):
+        load_sql('../utils/etl_helpers.py')
+
+
+def test_transaction_scope_commit_and_restore():
+    conn = DummyConn()
+    assert conn.autocommit is True
+    with transaction_scope(conn):
+        assert conn.autocommit is False
+    assert conn.autocommit is True
+    assert conn.commits == 1
+    assert conn.rollbacks == 0
+
+
+def test_transaction_scope_rollback_on_error():
+    conn = DummyConn()
+    with pytest.raises(RuntimeError):
+        with transaction_scope(conn):
+            assert conn.autocommit is False
+            raise RuntimeError('boom')
+    assert conn.autocommit is True
+    assert conn.commits == 0
+    assert conn.rollbacks == 1
