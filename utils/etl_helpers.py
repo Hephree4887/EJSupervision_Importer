@@ -90,7 +90,9 @@ def load_sql(filename: str, db_name: Optional[str] = None) -> str:
     
     if db_name:
         # Replace both variations of the database name
-        sql = sql.replace('ELPaso_TX', db_name).replace('ElPaso_TX', db_name)
+        sql = sql.replace('ELPaso_TX', db_name)
+        sql = sql.replace('ElPaso_TX', db_name)
+        sql = sql.replace('ELPASO_TX', db_name)
         logger.debug(f"Replaced database name in {filename} with {db_name}")
     
     return sql

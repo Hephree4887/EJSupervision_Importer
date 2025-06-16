@@ -27,7 +27,6 @@
     <Compile Include="02_OperationsDB_Import.py" />
     <Compile Include="03_FinancialDB_Import.py" />
     <Compile Include="04_LOBColumns.py" />
-    <Compile Include="etl\base.py" />
     <Compile Include="etl\base_importer.py" />
     <Compile Include="config\settings.py" />
     <Compile Include="config\__init__.py" />
