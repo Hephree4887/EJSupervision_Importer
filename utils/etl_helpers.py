@@ -135,8 +135,6 @@ def run_sql_step(
         logger.info(f"Step {name} failed after {elapsed:.2f} seconds")
         record_failure()
         raise SQLExecutionError(sql, e, table_name=name)
-
-
 def run_sql_step_with_retry(
     conn: Any,
     name: str,
@@ -182,23 +180,57 @@ def run_sql_script(
             # Set the query timeout
             cursor.execute(f"SET LOCK_TIMEOUT {timeout * 1000}")  # Convert to milliseconds
 
-            # Split by GO statements as well as semicolons for SQL Server
-            # This handles scripts that use GO as a batch separator
-            sql_batches = sql.split('\nGO\n') if '\nGO\n' in sql else [sql]
+            # For SQL Server scripts, handle GO as batch separator
+            # Split by GO statements first, then handle individual statements within each batch
+            if '\nGO\n' in sql or '\nGO\r\n' in sql or sql.strip().endswith('\nGO') or sql.strip().endswith('\rGO'):
+                # Split on GO batch separators
+                batches = []
+                # Handle different line endings and GO variations
+                for sep in ['\nGO\n', '\nGO\r\n', '\rGO\r', '\nGO', '\rGO']:
+                    if sep in sql:
+                        batches = sql.split(sep)
+                        break
+                if not batches:
+                    batches = [sql]
+            else:
+                # No GO separators, treat as single batch but split on semicolons
+                batches = [sql]
 
             total_statements = 0
-            for batch in sql_batches:
-                statements = [stmt.strip() for stmt in batch.split(';') if stmt.strip()]
-                for stmt in statements:
-                    # Skip comments and empty statements
-                    if stmt and not stmt.strip().startswith('--'):
-                        try:
-                            cursor.execute(stmt)
-                            conn.commit()
-                            total_statements += 1
-                        except Exception as e:
-                            logger.error(f"Error executing script {name}: {e}. SQL: {stmt}")
-                            raise SQLExecutionError(stmt, e, table_name=name)
+            for batch_idx, batch in enumerate(batches):
+                batch = batch.strip()
+                if not batch:
+                    continue
+                    
+                logger.debug(f"Executing batch {batch_idx + 1}/{len(batches)}")
+                
+                # For batches with GO separators, execute the entire batch as one
+                if len(batches) > 1 and batch:
+                    try:
+                        cursor.execute(batch)
+                        total_statements += 1
+                        logger.debug(f"Executed batch {batch_idx + 1} successfully")
+                    except Exception as e:
+                        logger.error(f"Error executing batch {batch_idx + 1} in script {name}: {e}")
+                        logger.error(f"Batch content: {batch[:200]}...")
+                        raise SQLExecutionError(batch, e, table_name=name)
+                else:
+                    # Split batch on semicolons for individual statements
+                    statements = [stmt.strip() for stmt in batch.split(';') if stmt.strip()]
+                    for stmt in statements:
+                        # Skip comments and empty statements
+                        if stmt and not stmt.strip().startswith('--') and not stmt.strip().startswith('/*'):
+                            try:
+                                cursor.execute(stmt)
+                                total_statements += 1
+                                logger.debug(f"Executed statement: {stmt[:100]}...")
+                            except Exception as e:
+                                logger.error(f"Error executing statement in script {name}: {e}")
+                                logger.error(f"Statement: {stmt}")
+                                raise SQLExecutionError(stmt, e, table_name=name)
+            
+            # Commit once at the end of the entire script
+            conn.commit()
 
         elapsed = time.time() - start_time
         logger.info(
@@ -206,11 +238,13 @@ def run_sql_script(
         )
         record_success()
     except SQLExecutionError:
+        conn.rollback()  # Rollback on error
         raise
     except Exception as e:
         elapsed = time.time() - start_time
         logger.error(f"Error in script {name}: {e}")
         logger.info(f"Script {name} failed after {elapsed:.2f} seconds")
+        conn.rollback()  # Rollback on error
         record_failure()
         raise SQLExecutionError(sql, e, table_name=name)
 def execute_sql_with_timeout(

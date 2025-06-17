@@ -274,28 +274,42 @@ class BaseDBImporter:
         pk_script_name = f"create_primarykeys_{self.DB_TYPE.lower()}" if self.DB_TYPE != 'Justice' else 'create_primarykeys'
         pk_sql = load_sql(f'{self.DB_TYPE.lower()}/{pk_script_name}.sql', self.db_name)
         
+        # First check if the table already exists (it shouldn't)
+        with conn.cursor() as cursor:
+            cursor.execute(f"IF OBJECT_ID('{self.db_name}.dbo.{pk_table}', 'U') IS NULL SELECT 0 ELSE SELECT 1")
+            exists_before = cursor.fetchval()
+            
+            if exists_before:
+                logger.info(f"PrimaryKeyScripts table ({self.db_name}.dbo.{pk_table}) already exists - will be recreated by script")
+                
+        # Try to execute the script that should create the table
         try:
-            # This is line 277 in your original code
+            logger.info(f"Executing primary key script: {pk_script_name}")
             run_sql_script(conn, pk_script_name, pk_sql, timeout=self.config['sql_timeout'])
             
-            # Verify the table was created
+            # Check if the table was created successfully
             with conn.cursor() as cursor:
                 cursor.execute(f"IF OBJECT_ID('{self.db_name}.dbo.{pk_table}', 'U') IS NULL SELECT 0 ELSE SELECT 1")
-                exists = cursor.fetchval()
+                exists_after = cursor.fetchval()
                 
-                if exists:
-                    logger.info(f"PrimaryKeyScripts table created successfully")
-                    # Show message box for successful execution
-                    root = tk.Tk()
-                    root.withdraw()
-                    messagebox.showinfo("Success", f"Primary key script executed successfully.\nTable {self.db_name}.dbo.{pk_table} was created.")
-                    root.destroy()
+                if exists_after:
+                    logger.info(f"PrimaryKeyScripts table created successfully by the script")
                 else:
-                    logger.error(f"Primary key script executed but table {self.db_name}.dbo.{pk_table} was not created")
+                    error_msg = f"Primary key script executed but table {self.db_name}.dbo.{pk_table} was not created"
+                    logger.error(error_msg)
+                    log_exception_to_file(error_msg, log_file)
+                    
+                    # Show error message box
                     root = tk.Tk()
                     root.withdraw()
-                    messagebox.showwarning("Warning", f"Primary key script executed but table {self.db_name}.dbo.{pk_table} was not created")
+                    messagebox.showerror("Error", 
+                        f"The primary key script executed but did not create the expected table.\n\n"
+                        f"Table: {self.db_name}.dbo.{pk_table}\n\n"
+                        f"Please verify the SQL script and try again."
+                    )
                     root.destroy()
+                    return  # Exit gracefully without proceeding further
+                    
         except Exception as e:
             error_msg = f"Error running primary key script: {str(e)}"
             logger.error(error_msg)
@@ -304,9 +318,9 @@ class BaseDBImporter:
             # Show error message box
             root = tk.Tk()
             root.withdraw()
-            messagebox.showerror("Error", f"Failed to execute primary key script:\n{str(e)}")
+            messagebox.showerror("Error", f"Failed to execute primary key script:\n\n{str(e)}")
             root.destroy()
-            raise
+            return  # Exit gracefully without proceeding further
 
         db_name = validate_sql_identifier(self.db_name)
         

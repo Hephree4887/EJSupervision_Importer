@@ -1,11 +1,3 @@
-"""Optimize LOB columns for migration by determining appropriate sizes.
-
-This script analyzes large object columns in the target database and writes
-ALTER statements to resize them as needed.  It relies on configuration from
-``MSSQL_TARGET_CONN_STR`` and accepts command line options for logging and
-batch size.
-"""
-
 import logging
 from utils.logging_helper import setup_logging, operation_counts
 import time
@@ -64,7 +56,6 @@ def parse_args():
         help="Enable verbose logging."
     )
     return parser.parse_args()
-
 def validate_environment():
     """Validate required environment variables and their values."""
     required_vars = {
@@ -94,7 +85,6 @@ def validate_environment():
             logger.info(f"Using {var}={value}")
         else:
             logger.info(f"{var} not set. {desc}")
-
 def load_config(config_file=None):
     """Load configuration from JSON file if provided, otherwise use defaults."""
     config = {
@@ -114,7 +104,6 @@ def load_config(config_file=None):
             logger.error(f"Error loading config file: {e}")
     
     return config
-
 def get_max_length(
     conn,
     schema,
@@ -134,13 +123,13 @@ def get_max_length(
             else:
                 return None
 
-            cursor.execute(sql, timeout=timeout)
+            # Remove the timeout parameter from execute()
+            cursor.execute(sql)
             result = cursor.fetchone()
             return result[0] if result and result[0] is not None else 0
         except Exception as e:
             logger.error(f"Error getting max length for {schema}.{table}.{column}: {e}")
             return None
-
 def build_alter_column_sql(schema, table, column, datatype, max_length):
     """Build the SQL statement to alter a column based on its max length."""
     if max_length is None or max_length == 0:
@@ -149,103 +138,112 @@ def build_alter_column_sql(schema, table, column, datatype, max_length):
         return f"ALTER TABLE [{schema}].[{table}] ALTER COLUMN [{column}] TEXT NULL"
     else:
         return f"ALTER TABLE [{schema}].[{table}] ALTER COLUMN [{column}] VARCHAR({max_length}) NULL"
-
 def create_lob_tracking_table(conn, config):
     """Create the table to track LOB column updates."""
     logger.info("Creating LOB_COLUMN_UPDATES tracking table")
     gather_lobs_sql = load_sql('lob/gather_lobs.sql', DB_NAME)
     run_sql_script(conn, 'gather_lobs', gather_lobs_sql, timeout=config['sql_timeout'])
     logger.info("LOB tracking table created successfully")
-
 def gather_lob_columns(conn, config, log_file):
     """Gather information about LOB columns and determine optimal sizes."""
     logger.info("Gathering information about LOB columns")
     
+    # Base query without ORDER BY for counting
+    base_query = f"""
+    SELECT
+        s.[NAME] AS SchemaName,
+        t.[NAME] AS TableName,
+        c.[NAME] AS ColumnName,
+        TYPE_NAME(c.user_type_id) AS DataType,
+        CASE WHEN TYPE_NAME(c.user_type_id) IN ('varchar', 'nvarchar') 
+             THEN c.max_length ELSE NULL END AS CurrentLength,
+        (SELECT COUNT(*) FROM sys.objects o WHERE o.object_id=t.object_id) AS RowCnt
+    FROM {DB_NAME}.sys.tables t
+    INNER JOIN {DB_NAME}.sys.schemas s ON t.schema_id=s.schema_id
+    INNER JOIN {DB_NAME}.sys.columns c ON t.object_id=c.object_id
+    WHERE t.[NAME] NOT IN (
+        'TablesToConvert','TablesToConvert_Financial','TablesToConvert_Operations'
+    ) 
+    AND (
+        TYPE_NAME(c.user_type_id) IN ('text', 'ntext') 
+        OR (TYPE_NAME(c.user_type_id) IN ('varchar', 'nvarchar') 
+            AND (c.max_length > 5000 OR c.max_length=-1))
+    )
+    """
+    
+    # Query with ORDER BY for actual data fetching
+    query = base_query + " ORDER BY s.[NAME], t.[NAME], c.[NAME]"
+    
+    processed = 0
+    total_count = 0
+    
+    # First, let's count how many columns we'll process
+    with conn.cursor() as count_cursor:
+        count_cursor.execute(f"SELECT COUNT(*) FROM ({query}) AS CountQuery")
+        total_count = count_cursor.fetchval() or 0
+    
+    progress = tqdm(total=total_count, desc="Analyzing LOB Columns", unit="column")
+    
+    # Now process in smaller batches to avoid long-running cursor issues
     with conn.cursor() as cursor:
-        cursor.execute("""
-        SELECT
-            s.[NAME] AS SchemaName,
-            t.[NAME] AS TableName,
-            c.[NAME] AS ColumnName,
-            TYPE_NAME(c.user_type_id) AS DataType,
-            CASE WHEN TYPE_NAME(c.user_type_id) IN ('varchar', 'nvarchar') 
-                 THEN c.max_length ELSE NULL END AS CurrentLength,
-            (SELECT COUNT(*) FROM sys.objects o WHERE o.object_id=t.object_id) AS RowCnt
-        FROM {DB_NAME}.sys.tables t
-        INNER JOIN {DB_NAME}.sys.schemas s ON t.schema_id=s.schema_id
-        INNER JOIN {DB_NAME}.sys.columns c ON t.object_id=c.object_id
-        WHERE t.[NAME] NOT IN (
-            'TablesToConvert','TablesToConvert_Financial','TablesToConvert_Operations'
-        ) 
-        AND (
-            TYPE_NAME(c.user_type_id) IN ('text', 'ntext') 
-            OR (TYPE_NAME(c.user_type_id) IN ('varchar', 'nvarchar') 
-                AND (c.max_length > 5000 OR c.max_length=-1))
-        )
-        ORDER BY s.[NAME], t.[NAME], c.[NAME]
-        """, timeout=config['sql_timeout'])
-
+        cursor.execute(query)
         columns = [desc[0] for desc in cursor.description]
+        
+        # Process row by row instead of using fetchmany
+        row = cursor.fetchone()
+        while row:
+            row_dict = dict(zip(columns, row))
+            schema_name = row_dict.get('SchemaName')
+            table_name = row_dict.get('TableName')
+            column_name = row_dict.get('ColumnName')
+            datatype = row_dict.get('DataType')
+            row_cnt = row_dict.get('RowCnt') or 0
 
-        batch_size = config.get(
-            'batch_size', ETLConstants.DEFAULT_BULK_INSERT_BATCH_SIZE
-        )
-        processed = 0
-        progress = tqdm(desc="Analyzing LOB Columns", unit="column")
+            if not config['include_empty_tables'] and row_cnt <= 0:
+                logger.info(f"Skipping {schema_name}.{table_name}.{column_name}: row count is {row_cnt}")
+                row = cursor.fetchone()  # Get next row before continuing
+                continue
 
-        with conn.cursor() as update_cursor:
-            while True:
-                rows = cursor.fetchmany(batch_size)
-                if not rows:
-                    break
-                for row in rows:
-                    row_dict = dict(zip(columns, row))
-                    schema_name = row_dict.get('SchemaName')
-                    table_name = row_dict.get('TableName')
-                    column_name = row_dict.get('ColumnName')
-                    datatype = row_dict.get('DataType')
-                    row_cnt = row_dict.get('RowCnt') or 0
+            try:
+                # Process each column with a fresh cursor
+                with conn.cursor() as process_cursor:
+                    max_length = get_max_length(conn, schema_name, table_name, column_name, datatype, config['sql_timeout'])
+                    alter_column_sql = build_alter_column_sql(schema_name, table_name, column_name, datatype, max_length)
 
-                    if not config['include_empty_tables'] and row_cnt <= 0:
-                        logger.info(f"Skipping {schema_name}.{table_name}.{column_name}: row count is {row_cnt}")
-                        continue
-
-                    try:
-                        max_length = get_max_length(conn, schema_name, table_name, column_name, datatype, config['sql_timeout'])
-                        alter_column_sql = build_alter_column_sql(schema_name, table_name, column_name, datatype, max_length)
-
-                        insert_sql = f"""
-                            INSERT INTO {DB_NAME}.dbo.LOB_COLUMN_UPDATES
-                            (SchemaName, TableName, ColumnName, DataType, CurrentLength, RowCnt, MaxLen, AlterStatement)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """
-                        update_cursor.execute(
-                            insert_sql,
-                            (
-                                schema_name,
-                                table_name,
-                                column_name,
-                                datatype,
-                                row_dict.get('CurrentLength'),
-                                row_cnt,
-                                max_length,
-                                alter_column_sql
-                            ),
-                            timeout=config['sql_timeout']
+                    insert_sql = f"""
+                        INSERT INTO {DB_NAME}.dbo.LOB_COLUMN_UPDATES
+                        (SchemaName, TableName, ColumnName, DataType, CurrentLength, RowCnt, MaxLen, AlterStatement)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """
+                    process_cursor.execute(
+                        insert_sql,
+                        (
+                            schema_name,
+                            table_name,
+                            column_name,
+                            datatype,
+                            row_dict.get('CurrentLength'),
+                            row_cnt,
+                            max_length,
+                            alter_column_sql
                         )
-                        conn.commit()
+                    )
+                    conn.commit()
+                
+                processed += 1
+                progress.update(1)
 
-                    except Exception as e:
-                        error_msg = f"Error processing LOB column {schema_name}.{table_name}.{column_name}: {e}"
-                        logger.error(error_msg)
-                        log_exception_to_file(error_msg, log_file)
+            except Exception as e:
+                error_msg = f"Error processing LOB column {schema_name}.{table_name}.{column_name}: {e}"
+                logger.error(error_msg)
+                log_exception_to_file(error_msg, log_file)
+                progress.update(1)  # Still update progress even on error
 
-                    processed += 1
-                    progress.update(1)
+            # Fetch the next row
+            row = cursor.fetchone()
 
-        progress.close()
-        logger.info(f"Analyzed and cataloged {processed} LOB columns")
-
+    progress.close()
+    logger.info(f"Analyzed and cataloged {processed} LOB columns out of {total_count} total")
 def execute_lob_column_updates(conn, config, log_file):
     """Execute the ALTER statements to optimize LOB columns."""
     logger.info("Executing ALTER TABLE statements for LOB columns")
@@ -256,8 +254,7 @@ def execute_lob_column_updates(conn, config, log_file):
         FROM {DB_NAME}.dbo.LOB_COLUMN_UPDATES S
         WHERE S.TABLENAME NOT LIKE '%LOB_COL%'
         ORDER BY S.MAXLEN DESC
-    """, timeout=config['sql_timeout'])
-
+        """)
         rows = cursor.fetchall()
         columns = [desc[0] for desc in cursor.description]
 
@@ -375,6 +372,5 @@ def main():
             root.destroy()
         except Exception as msgbox_exc:
             logger.error(f"Failed to show error message box: {msgbox_exc}")
-
 if __name__ == "__main__":
     main()

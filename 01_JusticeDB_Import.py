@@ -1,12 +1,4 @@
-﻿"""ETL script to migrate Justice database tables to the target server.
-
-The script loads SQL files under ``sql_scripts/justice`` and executes them
-against the database specified via ``MSSQL_TARGET_CONN_STR``.  Command line
-arguments allow overriding the log file location, CSV directory and other
-options.
-"""
-
-import logging
+﻿import logging
 from utils.logging_helper import setup_logging, operation_counts
 import time
 import json

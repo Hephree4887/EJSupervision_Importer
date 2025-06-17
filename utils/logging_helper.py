@@ -17,7 +17,6 @@ class CorrelationIdFilter(logging.Filter):
 
 operation_counts = {"success": 0, "failure": 0}
 
-
 def record_success() -> None:
     operation_counts["success"] += 1
 
@@ -40,9 +39,7 @@ def setup_logging(level: int = logging.INFO) -> str:
 
     if not root.handlers:
         handler = logging.StreamHandler()
-        formatter = logging.Formatter(
-            "%(asctime)s [%(correlation_id)s] %(levelname)s %(name)s: %(message)s"
-        )
+        formatter = logging.Formatter('%(levelname)s %(name)s: %(message)s')
         handler.setFormatter(formatter)
         root.addHandler(handler)
 
