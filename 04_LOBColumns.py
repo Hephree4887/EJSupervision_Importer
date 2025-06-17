@@ -172,75 +172,70 @@ def gather_lob_columns(conn, config, log_file):
     """
     
     # Query with ORDER BY for actual data fetching
-    query = base_query + " ORDER BY s.[NAME], t.[NAME], c.[NAME]"
+    query_with_order = base_query + " ORDER BY SchemaName,TableName,ColumnName"
     
     processed = 0
     total_count = 0
     
     # First, let's count how many columns we'll process
     with conn.cursor() as count_cursor:
-        count_cursor.execute(f"SELECT COUNT(*) FROM ({query}) AS CountQuery")
+        count_cursor.execute(f"SELECT COUNT(*) FROM ({base_query}) AS CountQuery")
         total_count = count_cursor.fetchval() or 0
     
     progress = tqdm(total=total_count, desc="Analyzing LOB Columns", unit="column")
     
-    # Now process in smaller batches to avoid long-running cursor issues
+    # Fetch all rows into memory to avoid overlapping cursors
     with conn.cursor() as cursor:
-        cursor.execute(query)
+        cursor.execute(query_with_order)
+        rows = cursor.fetchall()
         columns = [desc[0] for desc in cursor.description]
-        
-        # Process row by row instead of using fetchmany
-        row = cursor.fetchone()
-        while row:
-            row_dict = dict(zip(columns, row))
-            schema_name = row_dict.get('SchemaName')
-            table_name = row_dict.get('TableName')
-            column_name = row_dict.get('ColumnName')
-            datatype = row_dict.get('DataType')
-            row_cnt = row_dict.get('RowCnt') or 0
+    
+    for row in rows:
+        row_dict = dict(zip(columns, row))
+        schema_name = row_dict.get('SchemaName')
+        table_name = row_dict.get('TableName')
+        column_name = row_dict.get('ColumnName')
+        datatype = row_dict.get('DataType')
+        row_cnt = row_dict.get('RowCnt') or 0
 
-            if not config['include_empty_tables'] and row_cnt <= 0:
-                logger.info(f"Skipping {schema_name}.{table_name}.{column_name}: row count is {row_cnt}")
-                row = cursor.fetchone()  # Get next row before continuing
-                continue
+        if not config['include_empty_tables'] and row_cnt <= 0:
+            logger.info(f"Skipping {schema_name}.{table_name}.{column_name}: row count is {row_cnt}")
+            continue
 
-            try:
-                # Process each column with a fresh cursor
-                with conn.cursor() as process_cursor:
-                    max_length = get_max_length(conn, schema_name, table_name, column_name, datatype, config['sql_timeout'])
-                    alter_column_sql = build_alter_column_sql(schema_name, table_name, column_name, datatype, max_length)
+        try:
+            # Process each column with a fresh connection
+            max_length = get_max_length(conn, schema_name, table_name, column_name, datatype, config['sql_timeout'])
+            alter_column_sql = build_alter_column_sql(schema_name, table_name, column_name, datatype, max_length)
 
-                    insert_sql = f"""
-                        INSERT INTO {DB_NAME}.dbo.LOB_COLUMN_UPDATES
-                        (SchemaName, TableName, ColumnName, DataType, CurrentLength, RowCnt, MaxLen, AlterStatement)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """
-                    process_cursor.execute(
-                        insert_sql,
-                        (
-                            schema_name,
-                            table_name,
-                            column_name,
-                            datatype,
-                            row_dict.get('CurrentLength'),
-                            row_cnt,
-                            max_length,
-                            alter_column_sql
-                        )
+            with conn.cursor() as process_cursor:
+                insert_sql = f"""
+                    INSERT INTO {DB_NAME}.dbo.LOB_COLUMN_UPDATES
+                    (SchemaName, TableName, ColumnName, DataType, CurrentLength, RowCnt, MaxLen, AlterStatement)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """
+                process_cursor.execute(
+                    insert_sql,
+                    (
+                        schema_name,
+                        table_name,
+                        column_name,
+                        datatype,
+                        row_dict.get('CurrentLength'),
+                        row_cnt,
+                        max_length,
+                        alter_column_sql
                     )
-                    conn.commit()
-                
-                processed += 1
-                progress.update(1)
+                )
+                conn.commit()
+            
+            processed += 1
+            progress.update(1)
 
-            except Exception as e:
-                error_msg = f"Error processing LOB column {schema_name}.{table_name}.{column_name}: {e}"
-                logger.error(error_msg)
-                log_exception_to_file(error_msg, log_file)
-                progress.update(1)  # Still update progress even on error
-
-            # Fetch the next row
-            row = cursor.fetchone()
+        except Exception as e:
+            error_msg = f"Error processing LOB column {schema_name}.{table_name}.{column_name}: {e}"
+            logger.error(error_msg)
+            log_exception_to_file(error_msg, log_file)
+            progress.update(1)  # Still update progress even on error
 
     progress.close()
     logger.info(f"Analyzed and cataloged {processed} LOB columns out of {total_count} total")

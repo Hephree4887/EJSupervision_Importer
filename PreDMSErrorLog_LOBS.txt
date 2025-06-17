@@ -152,3 +152,21 @@ pyodbc.ProgrammingError: ('42000', '[42000] [Microsoft][ODBC Driver 17 for SQL S
     count_cursor.execute(f"SELECT COUNT(*) FROM ({query}) AS CountQuery")
 pyodbc.ProgrammingError: ('42000', '[42000] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]The ORDER BY clause is invalid in views, inline functions, derived tables, subqueries, and common table expressions, unless TOP, OFFSET or FOR XML is also specified. (1033) (SQLExecDirectW)')
 
+[2025-06-17 10:43:07] Traceback (most recent call last):
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\04_LOBColumns.py", line 353, in main
+    raise e
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\04_LOBColumns.py", line 338, in main
+    gather_lob_columns(conn, config, config['log_file'])
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\04_LOBColumns.py", line 182, in gather_lob_columns
+    count_cursor.execute(f"SELECT COUNT(*) FROM ({query}) AS CountQuery")
+pyodbc.ProgrammingError: ('42000', '[42000] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]The ORDER BY clause is invalid in views, inline functions, derived tables, subqueries, and common table expressions, unless TOP, OFFSET or FOR XML is also specified. (1033) (SQLExecDirectW)')
+
+[2025-06-17 10:48:01] Traceback (most recent call last):
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\04_LOBColumns.py", line 353, in main
+    raise e
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\04_LOBColumns.py", line 338, in main
+    gather_lob_columns(conn, config, config['log_file'])
+  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\04_LOBColumns.py", line 243, in gather_lob_columns
+    row = cursor.fetchone()
+pyodbc.Error: ('HY010', '[HY010] [Microsoft][ODBC Driver 17 for SQL Server]Function sequence error (0) (SQLFetch)')
+
