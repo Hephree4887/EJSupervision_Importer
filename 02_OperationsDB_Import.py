@@ -1,11 +1,3 @@
-"""ETL script to migrate Operations database tables.
-
-The script reads SQL under ``sql_scripts/operations`` and applies it to the
-database defined by the ``MSSQL_TARGET_CONN_STR`` environment variable.  Command
-line arguments mirror those of ``01_JusticeDB_Import.py`` allowing CSV and log
-locations to be overridden.
-"""
-
 import logging
 from utils.logging_helper import setup_logging, operation_counts
 import time
@@ -13,7 +5,7 @@ import json
 import sys
 import os
 import argparse
-from typing import Any
+from typing import Any, Optional 
 from dotenv import load_dotenv
 import pandas as pd
 import urllib
@@ -81,7 +73,25 @@ class OperationsDBImporter(BaseDBImporter):
             help="Enable verbose logging."
         )
         return parser.parse_args()
+    def safe_tqdm(self, iterable, **kwargs):
+        """
+        A safe wrapper around tqdm that handles cases where tqdm might not be available
+        or doesn't work in the current environment.
         
+        Args:
+            iterable: The iterable to wrap with a progress bar
+            **kwargs: Arguments to pass to tqdm
+            
+        Returns:
+            An iterable with a progress bar if possible, otherwise the original iterable
+        """
+        try:
+            # Use the imported tqdm to create a progress bar
+            return tqdm(iterable, **kwargs)
+        except Exception as e:
+            # Log the error but continue without the progress bar
+            logger.warning(f"Could not create progress bar: {e}")
+            return iterable
     def execute_preprocessing(self, conn: Any) -> None:
         """Define supervision scope for Operations DB."""
         logger.info("Defining supervision scope...")
@@ -94,20 +104,41 @@ class OperationsDBImporter(BaseDBImporter):
             conn.commit()
         
         logger.info("All Staging steps completed successfully. Document Conversion Scope Defined.")
-    
     def prepare_drop_and_select(self, conn: Any) -> None:
         """Prepare SQL statements for dropping and selecting data."""
         logger.info("Gathering list of Operations tables with SQL Commands to be migrated.")
         additional_sql = load_sql('operations/gather_drops_and_selects_operations.sql', self.db_name)
         run_sql_script(conn, 'gather_drops_and_selects_operations', additional_sql, timeout=self.config['sql_timeout'])
-    
     def update_joins_in_tables(self, conn: Any) -> None:
         """Update the TablesToConvert table with JOINs."""
         logger.info("Updating JOINS in TablesToConvert List")
         update_joins_sql = load_sql('operations/update_joins_operations.sql', self.db_name)
         run_sql_script(conn, 'update_joins', update_joins_sql, timeout=self.config['sql_timeout'])
         logger.info("Updating JOINS for Operations tables is complete.")
+    def show_completion_message(self, next_step_name: Optional[str] = None) -> bool:
+        """Show a message box indicating completion of Operations DB processing."""
+        root = tk.Tk()
+        root.withdraw()  # Hide the main window
     
+        # Create a more prominent window with specific Operations DB instructions
+        message = "? OPERATIONS DATABASE MIGRATION COMPLETE\n\n"
+        message += "All Operations tables have been successfully migrated to the target database.\n\n"
+        message += "NEXT STEPS:\n"
+        message += "1. You may now drop the Operations database if it's no longer needed\n"
+        message += "2. The next step in the process is the Financial DB Import\n\n"
+    
+        if next_step_name:
+            message += f"Click 'Yes' to automatically proceed to {next_step_name}, or 'No' to exit."
+            result = messagebox.askyesno("Operations DB Migration Complete", message, icon=messagebox.INFO)
+            logger.info("Operations DB migration complete dialog shown to user")
+            root.destroy()
+            return result
+        else:
+            message += "Click 'OK' to exit."
+            messagebox.showinfo("Operations DB Migration Complete", message, icon=messagebox.INFO)
+            logger.info("Operations DB migration complete dialog shown to user")
+            root.destroy()
+            return False
     def get_next_step_name(self) -> str:
         """Return the name of the next step in the ETL process."""
         return "Financial migration"

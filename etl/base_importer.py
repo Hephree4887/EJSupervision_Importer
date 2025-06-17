@@ -48,7 +48,6 @@ class BaseDBImporter:
     def parse_args(self) -> argparse.Namespace:
         """Parse command line arguments - implement in subclasses."""
         raise NotImplementedError("Subclasses must implement parse_args()")
-
     def validate_environment(self) -> None:
         """Validate required environment variables."""
         required_vars = {
@@ -63,7 +62,6 @@ class BaseDBImporter:
         }
         
         validate_environment(required_vars, optional_vars)
-
     def load_config(self, args: argparse.Namespace) -> None:
         """Load configuration from arguments and environment."""
         default_config = {
@@ -98,7 +96,6 @@ class BaseDBImporter:
             os.environ.get("EJ_CSV_DIR", ""),
             self.config["csv_filename"]
         )
-
     def import_joins(self) -> sqlalchemy.engine.Engine:
         """Import JOIN statements from CSV to build selection queries."""
         logger.info(f"Importing JOINS from {self.DB_TYPE} Selects CSV")
@@ -139,7 +136,6 @@ class BaseDBImporter:
         
         logger.info(f"Successfully imported {len(df)} JOIN definitions from {csv_path}")
         return engine
-
     def execute_table_operations(self, conn: Any) -> None:
         """Execute DROP and SELECT INTO operations."""
         logger.info("Executing table operations (DROP/SELECT)")
@@ -251,7 +247,6 @@ class BaseDBImporter:
             raise
 
         logger.info(f"Table operations completed: {successful_tables} successful, {failed_tables} failed")
-
     def create_primary_keys(self, conn: Any) -> None:
         """Create primary keys and NOT NULL constraints."""
         if self.config['skip_pk_creation']:
@@ -268,17 +263,25 @@ class BaseDBImporter:
         pk_table = validate_sql_identifier(pk_table)
         tables_table = validate_sql_identifier(tables_table)
         
-        logger.info(f"Generating List of Primary Keys and NOT NULL Columns for {self.DB_TYPE} Database")
+        logger.info(f"Starting primary key generation for {self.DB_TYPE} Database")
         pk_script_name = f"create_primarykeys_{self.DB_TYPE.lower()}" if self.DB_TYPE != 'Justice' else 'create_primarykeys'
         pk_sql = load_sql(f'{self.DB_TYPE.lower()}/{pk_script_name}.sql', self.db_name)
         
         run_sql_script(conn, pk_script_name, pk_sql, timeout=self.config['sql_timeout'])
 
         db_name = validate_sql_identifier(self.db_name)
+        
+        # Add counters to track progress
+        total_tables = 0
+        processed_tables = 0
+        skipped_tables = 0
+        error_tables = 0
+        
+        logger.info(f"Retrieving primary key scripts for {self.DB_TYPE} tables...")
+        
         with transaction_scope(conn):
             with conn.cursor() as cursor:
-                cursor.execute(
-                    f"""
+                formatted_sql = f"""
                 WITH CTE_PKS AS (
                     SELECT 1 AS TYPEY, S.DatabaseName, S.SchemaName, S.TableName, S.Script
                     FROM {db_name}.dbo.{pk_table} S
@@ -296,10 +299,14 @@ class BaseDBImporter:
                 WHERE TTC.fConvert=1
                 ORDER BY S.SCHEMANAME, S.TABLENAME, S.TYPEY
                 """
-                )
+                cursor.execute(formatted_sql)
                 rows = cursor.fetchall()
                 columns = [desc[0] for desc in cursor.description]
+                
+                total_tables = len(rows)
+                logger.info(f"Found {total_tables} tables requiring primary key or NOT NULL constraints")
 
+            # Use safe_tqdm for UI progress display
             for idx, row in enumerate(safe_tqdm(rows, desc="PK Creation", unit="table"), 1):
                 row_dict = dict(zip(columns, row))
                 createpk_sql = row_dict.get('Script')
@@ -307,9 +314,30 @@ class BaseDBImporter:
                 schema_name = validate_sql_identifier(row_dict.get('SchemaName'))
                 table_name = validate_sql_identifier(row_dict.get('TableName'))
                 full_table_name = f"{schema_name}.{table_name}"
+                
+                # Print progress info every 10 tables or at specific percentages
+                if idx % 10 == 0 or idx == 1 or idx == total_tables or idx * 100 // total_tables % 10 == 0:
+                    percent_complete = idx * 100 // total_tables
+                    logger.info(f"PK Progress: {idx}/{total_tables} tables ({percent_complete}%)")
 
-                logger.info(f"Executing Primary Key/NOT NULL for row {idx} ({self.DB_TYPE}.{full_table_name})")
-                if (scope_row_count != 0 or scope_row_count is not None) or self.config['include_empty_tables']:
+                # Add detailed logging for debugging
+                logger.debug(f"Table: {full_table_name}, ScopeRowCount: {scope_row_count}, " 
+                            f"include_empty_tables: {self.config['include_empty_tables']}")
+
+                # Fix the condition logic to properly handle empty tables
+                should_process = False
+                if scope_row_count is None:
+                    logger.debug(f"Checking {full_table_name}: scope_row_count is None")
+                    should_process = self.config['include_empty_tables']
+                elif scope_row_count > 0:
+                    logger.debug(f"Checking {full_table_name}: scope_row_count is {scope_row_count}")
+                    should_process = True
+                else:  # scope_row_count is 0
+                    logger.debug(f"Checking {full_table_name}: empty (scope_row_count=0)")
+                    should_process = self.config['include_empty_tables']
+                    
+                if should_process:
+                    logger.info(f"Executing PK/NOT NULL for {self.DB_TYPE}.{full_table_name} [{idx}/{total_tables}]")
                     try:
                         run_sql_step_with_retry(
                             conn,
@@ -318,16 +346,21 @@ class BaseDBImporter:
                             timeout=self.config['sql_timeout'],
                         )
                         conn.commit()
+                        processed_tables += 1
                     except Exception as e:
                         conn.rollback()
                         error_msg = (
-                            f"Error executing PK statements for row {idx} ({self.DB_TYPE}.{full_table_name}): {e}"
+                            f"Error executing PK statements for {self.DB_TYPE}.{full_table_name}: {e}"
                         )
                         logger.error(error_msg)
                         log_exception_to_file(error_msg, log_file)
+                        error_tables += 1
+                else:
+                    logger.info(f"Skipping PK for {self.DB_TYPE}.{full_table_name}: Empty table")
+                    skipped_tables += 1
 
-        logger.info(f"All Primary Key/NOT NULL statements executed FOR THE {self.DB_TYPE} DATABASE.")
-
+        logger.info(f"PK Creation complete: {processed_tables} processed, {skipped_tables} skipped, {error_tables} failed")
+        logger.info(f"All Primary Key/NOT NULL statements executed for {self.DB_TYPE} DATABASE.")
     def show_completion_message(self, next_step_name: Optional[str] = None) -> bool:
         """Show a message box indicating completion and asking to continue."""
         root = tk.Tk()
@@ -346,7 +379,6 @@ class BaseDBImporter:
             messagebox.showinfo(f"{self.DB_TYPE} DB Migration Complete", message)
             root.destroy()
             return False
-
     def run(self) -> bool:
         """Template method - main execution flow."""
         try:
@@ -418,19 +450,15 @@ class BaseDBImporter:
             return False
     
     # Methods that must be implemented by subclasses
-    
     def execute_preprocessing(self, conn: Any) -> None:
         """Execute database-specific preprocessing steps."""
         raise NotImplementedError("Subclasses must implement execute_preprocessing()")
-    
     def prepare_drop_and_select(self, conn: Any) -> None:
         """Prepare SQL statements for dropping and selecting data."""
         raise NotImplementedError("Subclasses must implement prepare_drop_and_select()")
-    
     def update_joins_in_tables(self, conn: Any) -> None:
         """Update tables with JOINs."""
         raise NotImplementedError("Subclasses must implement update_joins_in_tables()")
-    
     def get_next_step_name(self) -> str:
         """Return the name of the next step in the ETL process."""
         raise NotImplementedError("Subclasses must implement get_next_step_name()")

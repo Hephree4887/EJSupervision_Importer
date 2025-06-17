@@ -1,18 +1,11 @@
-"""ETL script to migrate Financial database tables to the target server.
-
-SQL files under ``sql_scripts/financial`` are executed in sequence.  Environment
-variables and command line options control the log path, CSV file location and
-whether empty tables are processed.
-"""
-
-import logging
+﻿import logging
 from utils.logging_helper import setup_logging, operation_counts
 import time
 import json
 import sys
 import os
 import argparse
-from typing import Any
+from typing import Any, Optional  # Added Optional here
 from dotenv import load_dotenv
 import pandas as pd
 import urllib
@@ -80,7 +73,25 @@ class FinancialDBImporter(BaseDBImporter):
             help="Enable verbose logging."
         )
         return parser.parse_args()
+    def safe_tqdm(self, iterable, **kwargs):
+        """
+        A safe wrapper around tqdm that handles cases where tqdm might not be available
+        or doesn't work in the current environment.
         
+        Args:
+            iterable: The iterable to wrap with a progress bar
+            **kwargs: Arguments to pass to tqdm
+            
+        Returns:
+            An iterable with a progress bar if possible, otherwise the original iterable
+        """
+        try:
+            # Use the imported tqdm to create a progress bar
+            return tqdm(iterable, **kwargs)
+        except Exception as e:
+            # Log the error but continue without the progress bar
+            logger.warning(f"Could not create progress bar: {e}")
+            return iterable
     def execute_preprocessing(self, conn: Any) -> None:
         """Define supervision scope for Financial DB."""
         logger.info("Defining supervision scope...")
@@ -93,20 +104,41 @@ class FinancialDBImporter(BaseDBImporter):
             conn.commit()
         
         logger.info("All Staging steps completed successfully. Supervision Scope Defined.")
-    
     def prepare_drop_and_select(self, conn: Any) -> None:
         """Prepare SQL statements for dropping and selecting data."""
         logger.info("Gathering list of Financial tables with SQL Commands to be migrated.")
         additional_sql = load_sql('financial/gather_drops_and_selects_financial.sql', self.db_name)
         run_sql_script(conn, 'gather_drops_and_selects_financial', additional_sql, timeout=self.config['sql_timeout'])
-    
     def update_joins_in_tables(self, conn: Any) -> None:
         """Update the TablesToConvert table with JOINs."""
         logger.info("Updating JOINS in TablesToConvert List")
         update_joins_sql = load_sql('financial/update_joins_financial.sql', self.db_name)
         run_sql_script(conn, 'update_joins_financial', update_joins_sql, timeout=self.config['sql_timeout'])
         logger.info("Updating JOINS for Financial tables is complete.")
+    def show_completion_message(self, next_step_name: Optional[str] = None) -> bool:
+        """Show a message box indicating completion of Financial DB processing."""
+        root = tk.Tk()
+        root.withdraw()  # Hide the main window
     
+        # Create a more prominent window with specific Financial DB instructions
+        message = "✅ FINANCIAL DATABASE MIGRATION COMPLETE\n\n"
+        message += "All Financial tables have been successfully migrated to the target database.\n\n"
+        message += "NEXT STEPS:\n"
+        message += "1. You may now drop the Financial database if it's no longer needed\n"
+        message += "2. The next step in the process is the LOB Column Processing\n\n"
+    
+        if next_step_name:
+            message += f"Click 'Yes' to automatically proceed to {next_step_name}, or 'No' to exit."
+            result = messagebox.askyesno("Financial DB Migration Complete", message, icon=messagebox.INFO)
+            logger.info("Financial DB migration complete dialog shown to user")
+            root.destroy()
+            return result
+        else:
+            message += "Click 'OK' to exit."
+            messagebox.showinfo("Financial DB Migration Complete", message, icon=messagebox.INFO)
+            logger.info("Financial DB migration complete dialog shown to user")
+            root.destroy()
+            return False
     def get_next_step_name(self) -> str:
         """Return the name of the next step in the ETL process."""
         return "LOB Column Processing"
