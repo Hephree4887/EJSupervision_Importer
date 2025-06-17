@@ -1,4 +1,4 @@
-DROP TABLE IF EXISTS ELPaso_TX.dbo.TablesToConvert;
+DROP TABLE IF EXISTS ${DB_NAME}.dbo.TablesToConvert;
 
 SELECT 
     'Justice' AS [DatabaseName],
@@ -23,9 +23,9 @@ SELECT
         ORDER BY c.column_id
         FOR XML PATH(''), TYPE
     ).value('.', 'NVARCHAR(MAX)'), 1, 2, '') + 
-    ' INTO ELPaso_TX.' + QUOTENAME(s.[NAME]) + '.' + QUOTENAME(t.[NAME]) + ' FROM Justice.' + QUOTENAME(s.[NAME]) + '.' + QUOTENAME(t.[NAME]) +
+    ' INTO ${DB_NAME}.' + QUOTENAME(s.[NAME]) + '.' + QUOTENAME(t.[NAME]) + ' FROM Justice.' + QUOTENAME(s.[NAME]) + '.' + QUOTENAME(t.[NAME]) +
     ' A WITH (NOLOCK) ' AS [Select_Into],
-	'DROP TABLE IF EXISTS ELPaso_TX.' + QUOTENAME(s.[NAME]) + '.' + QUOTENAME(t.[NAME])  AS Drop_IfExists,
+	'DROP TABLE IF EXISTS ${DB_NAME}.' + QUOTENAME(s.[NAME]) + '.' + QUOTENAME(t.[NAME])  AS Drop_IfExists,
 	'SELECT DISTINCT A' + 
     STUFF((
         SELECT ',' + 
@@ -44,7 +44,7 @@ SELECT
       + ' FROM Justice.' + QUOTENAME(s.[NAME]) + '.' + QUOTENAME(t.[NAME]) +
     ' A WITH (NOLOCK) ' AS Select_Only,
 	CAST('' AS VARCHAR(8000)) AS Joins
-INTO ELPaso_TX.dbo.TablesToConvert
+INTO ${DB_NAME}.dbo.TablesToConvert
 FROM 
     Justice.sys.tables t
 		INNER JOIN Justice.sys.schemas s ON t.schema_id=s.schema_id
@@ -56,4 +56,4 @@ WHERE
 ORDER BY 
     s.[NAME], t.[NAME];
 
-ALTER TABLE ELPaso_TX.dbo.TablesToConvert ADD RowID INT IDENTITY(1,1);
+ALTER TABLE ${DB_NAME}.dbo.TablesToConvert ADD RowID INT IDENTITY(1,1);

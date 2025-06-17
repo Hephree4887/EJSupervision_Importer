@@ -56,46 +56,36 @@ def transaction_scope(conn: Any) -> Generator[Any, None, None]:
         raise
     finally:
         conn.autocommit = original_autocommit
-def load_sql(filename: str, db_name: Optional[str] = None) -> str:
-    """Load a SQL file from the sql_scripts directory.
 
-    If ``db_name`` is provided, occurrences of the hard coded ``ELPaso_TX``
-    database name are replaced with the supplied value so the scripts can run
-    against any target database.
+def load_sql(script_path: str, db_name: str = None) -> str:
+    """
+    Load a SQL script and replace placeholders with dynamic values.
     
     Args:
-        filename: Path to SQL file relative to sql_scripts directory
-        db_name: Database name to replace ELPaso_TX with
-        
+        script_path: Path to SQL script relative to sql_scripts directory
+        db_name: Database name to use for placeholder replacement
+    
     Returns:
-        SQL content with database name replaced if provided
+        SQL content with placeholders replaced
     """
-    base_dir = os.path.dirname(os.path.dirname(__file__)) if '__file__' in globals() else os.getcwd()
-    scripts_dir = os.path.join(base_dir, 'sql_scripts')
-    # Normalize path to avoid path traversal outside sql_scripts
-    sql_path = os.path.abspath(os.path.normpath(os.path.join(scripts_dir, filename)))
-
-    # Ensure the final path is within the expected sql_scripts directory
-    scripts_dir_abs = os.path.abspath(scripts_dir)
-    if not sql_path.startswith(scripts_dir_abs + os.sep):
-        logger.error(f"Attempted SQL path traversal: {filename}")
-        raise ValueError(f"Invalid SQL file path: {filename}")
-
-    if not os.path.exists(sql_path):
-        logger.error(f"SQL file not found: {sql_path}")
-        raise FileNotFoundError(f"SQL file not found: {sql_path}")
+    # Locate the SQL script
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sql_dir = os.path.join(base_dir, "sql_scripts")
+    full_path = os.path.join(sql_dir, script_path)
     
-    with open(sql_path, 'r', encoding='utf-8') as f:
-        sql = f.read()
+    if not os.path.exists(full_path):
+        raise FileNotFoundError(f"SQL script not found: {full_path}")
     
+    # Read the SQL content
+    with open(full_path, 'r', encoding='utf-8') as f:
+        sql_content = f.read()
+    
+    # Replace placeholders if db_name is provided
     if db_name:
-        # Replace both variations of the database name
-        sql = sql.replace('ELPaso_TX', db_name)
-        sql = sql.replace('ElPaso_TX', db_name)
-        sql = sql.replace('ELPASO_TX', db_name)
-        logger.debug(f"Replaced database name in {filename} with {db_name}")
+        sql_content = sql_content.replace('${DB_NAME}', db_name)
     
-    return sql
+    return sql_content
+
 def run_sql_step(
     conn: Any, name: str, sql: str, timeout: int = ETLConstants.DEFAULT_SQL_TIMEOUT
 ) -> Optional[List[Any]]:
@@ -135,6 +125,7 @@ def run_sql_step(
         logger.info(f"Step {name} failed after {elapsed:.2f} seconds")
         record_failure()
         raise SQLExecutionError(sql, e, table_name=name)
+
 def run_sql_step_with_retry(
     conn: Any,
     name: str,
@@ -162,6 +153,7 @@ def run_sql_step_with_retry(
                 )
 
             time.sleep(2**attempt)
+
 def run_sql_script(
     conn: Any, name: str, sql: str, timeout: int = ETLConstants.DEFAULT_SQL_TIMEOUT
 ) -> None:
@@ -247,6 +239,7 @@ def run_sql_script(
         conn.rollback()  # Rollback on error
         record_failure()
         raise SQLExecutionError(sql, e, table_name=name)
+
 def execute_sql_with_timeout(
     conn: Any,
     sql: str,

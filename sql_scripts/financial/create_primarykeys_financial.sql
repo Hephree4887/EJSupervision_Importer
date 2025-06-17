@@ -1,31 +1,41 @@
--- Drop table If exists
-	DROP TABLE IF EXISTS ELPaso_TX.dbo.PrimaryKeyScripts_Financial;
--- Create Table to store scripts
-	CREATE TABLE ELPaso_TX.dbo.PrimaryKeyScripts_Financial
-		(
-			 ScriptType NVARCHAR(50)-- 'PK' or 'NOT_NULL'
-			,DatabaseName SYSNAME
-			,SchemaName SYSNAME
-			,TableName SYSNAME
-			,Script NVARCHAR(MAX)
-		);
+BEGIN TRY
+    -- Drop and recreate the table in a single transaction
+    DROP TABLE IF EXISTS ${DB_NAME}.dbo.PrimaryKeyScripts_Financial;
+        
+    CREATE TABLE ${DB_NAME}.dbo.PrimaryKeyScripts_Financial
+    (
+         ScriptType NVARCHAR(50)-- 'PK' or 'NOT_NULL'
+        ,DatabaseName SYSNAME
+        ,SchemaName SYSNAME
+        ,TableName SYSNAME
+        ,Script NVARCHAR(MAX)
+    );
+    
+    -- Insert PK scripts
+    INSERT INTO ${DB_NAME}.dbo.PrimaryKeyScripts_Financial (ScriptType,DatabaseName,SchemaName,TableName,Script)
+        SELECT 'PK','${DB_NAME}',S.[NAME],T.[NAME],
+            'ALTER TABLE [${DB_NAME}].[dbo].[Financial_' + t.name + '] ADD CONSTRAINT [Fn_' + kc.name + '] PRIMARY KEY (' +STUFF((SELECT ', [' + c2.name + ']' FROM Financial.sys.index_columns ic2 JOIN Financial.sys.columns c2 ON c2.object_id=ic2.object_id AND c2.column_id=ic2.column_id WHERE ic2.object_id=t.object_id AND ic2.index_id=kc.unique_index_id ORDER BY ic2.key_ordinal FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') + ')' AS Script 
+        FROM 
+            Financial.sys.tables t
+                INNER JOIN Financial.sys.schemas s ON t.schema_id=s.schema_id
+                INNER JOIN Financial.sys.key_constraints kc ON kc.parent_object_id=t.object_id AND kc.type='PK';
 
- -- Generate PK scripts using FOR XML PATH 
-	INSERT INTO ELPaso_TX.dbo.PrimaryKeyScripts_Financial (ScriptType,DatabaseName,SchemaName,TableName,Script)
-			SELECT 'PK','ELPaso_TX',S.[NAME],T.[NAME],
-				'ALTER TABLE [ELPaso_TX].[dbo].[Financial_' + t.[NAME] + '] ADD CONSTRAINT [Fn_' + kc.[NAME] + '] PRIMARY KEY (' +STUFF((SELECT ', [' + c2.[NAME] + ']' FROM Financial.sys.index_columns ic2 JOIN Financial.sys.columns c2 ON c2.object_id=ic2.object_id AND c2.column_id=ic2.column_id WHERE ic2.object_id=t.object_id AND ic2.index_id=kc.unique_index_id ORDER BY ic2.key_ordinal FOR XML PATH(''), TYPE).value('.', 'NVARCHAR(MAX)'), 1, 2, '') + ')' AS Script 
-			FROM 
-				Financial.sys.tables t
-					INNER JOIN Financial.sys.schemas s ON t.schema_id=s.schema_id
-					INNER JOIN Financial.sys.key_constraints kc ON kc.parent_object_id=t.object_id AND kc.type='PK';
-
-	INSERT INTO ELPaso_TX.dbo.PrimaryKeyScripts_Financial (ScriptType,DatabaseName,SchemaName,TableName,Script)
-			SELECT 'NOT_NULL','ELPaso_TX',S.[NAME],T.[NAME],
-				'ALTER TABLE [ELPaso_TX].[dbo].[Financial_' + t.[NAME] + '] ALTER COLUMN [' + c.[NAME] + '] ' + UPPER(case tp.system_type_id when 36 then 'uniqueidentifier' when 48 then 'tinyint' when 52 then 'smallint' when 56 then 'int' when 61 then 'datetime' when 104 then 'flag' when 127 then 'bigint' when 167 then 'varchar' when 175 then 'char' else tp.[name] end) + CASE WHEN case tp.system_type_id when 36 then 'uniqueidentifier' when 48 then 'tinyint' when 52 then 'smallint' when 56 then 'int' when 61 then 'datetime' when 104 then 'flag' when 127 then 'bigint' when 167 then 'varchar' when 175 then 'char' else tp.[name] end IN ('varchar', 'char', 'varbinary', 'binary') THEN '(' + CASE WHEN c.max_length=-1 THEN 'MAX' ELSE CAST(c.max_length AS VARCHAR(10)) END + ')' WHEN case tp.system_type_id when 36 then 'uniqueidentifier' when 48 then 'tinyint' when 52 then 'smallint' when 56 then 'int' when 61 then 'datetime' when 104 then 'flag' when 127 then 'bigint' when 167 then 'varchar' when 175 then 'char' else tp.[name] end IN ('nvarchar', 'nchar') THEN '(' + CASE WHEN c.max_length=-1 THEN 'MAX' ELSE CAST(c.max_length / 2 AS VARCHAR(10)) END + ')' WHEN case tp.system_type_id when 36 then 'uniqueidentifier' when 48 then 'tinyint' when 52 then 'smallint' when 56 then 'int' when 61 then 'datetime' when 104 then 'flag' when 127 then 'bigint' when 167 then 'varchar' when 175 then 'char' else tp.[name] end IN ('decimal', 'numeric') THEN '(' + CAST(c.precision AS VARCHAR) + ',' + CAST(c.scale AS VARCHAR) + ')' ELSE '' END + ' NOT NULL' AS Script
-			FROM 
-				Financial.sys.tables t
-					INNER JOIN Financial.sys.schemas s ON t.schema_id=s.schema_id
-					INNER JOIN Financial.sys.key_constraints kc ON kc.parent_object_id=t.object_id AND kc.type='PK'
-					INNER JOIN Financial.sys.index_columns ic ON ic.object_id=kc.parent_object_id AND ic.index_id=kc.unique_index_id
-					INNER JOIN Financial.sys.columns c ON c.object_id=t.object_id AND c.column_id=ic.column_id
-					INNER JOIN Financial.sys.types tp ON c.user_type_id=tp.user_type_id;
+    -- Insert NOT NULL constraints
+    INSERT INTO ${DB_NAME}.dbo.PrimaryKeyScripts_Financial (ScriptType,DatabaseName,SchemaName,TableName,Script)
+        SELECT 'NOT_NULL','${DB_NAME}',S.[NAME],T.[NAME],
+            'ALTER TABLE [${DB_NAME}].[dbo].[Financial_' + t.name + '] ALTER COLUMN [' + c.name + '] ' + UPPER(case tp.system_type_id when 36 then 'uniqueidentifier' when 48 then 'tinyint' when 52 then 'smallint' when 56 then 'int' when 61 then 'datetime' when 104 then 'flag' when 127 then 'bigint' when 167 then 'varchar' when 175 then 'char' else tp.[name] end) + CASE WHEN case tp.system_type_id when 36 then 'uniqueidentifier' when 48 then 'tinyint' when 52 then 'smallint' when 56 then 'int' when 61 then 'datetime' when 104 then 'flag' when 127 then 'bigint' when 167 then 'varchar' when 175 then 'char' else tp.[name] end IN ('varchar', 'char', 'varbinary', 'binary') THEN '(' + CASE WHEN c.max_length=-1 THEN 'MAX' ELSE CAST(c.max_length AS VARCHAR(10)) END + ')' WHEN case tp.system_type_id when 36 then 'uniqueidentifier' when 48 then 'tinyint' when 52 then 'smallint' when 56 then 'int' when 61 then 'datetime' when 104 then 'flag' when 127 then 'bigint' when 167 then 'varchar' when 175 then 'char' else tp.[name] end IN ('nvarchar', 'nchar') THEN '(' + CASE WHEN c.max_length=-1 THEN 'MAX' ELSE CAST(c.max_length / 2 AS VARCHAR(10)) END + ')' WHEN case tp.system_type_id when 36 then 'uniqueidentifier' when 48 then 'tinyint' when 52 then 'smallint' when 56 then 'int' when 61 then 'datetime' when 104 then 'flag' when 127 then 'bigint' when 167 then 'varchar' when 175 then 'char' else tp.[name] end IN ('decimal', 'numeric') THEN '(' + CAST(c.precision AS VARCHAR) + ',' + CAST(c.scale AS VARCHAR) + ')' ELSE '' END + ' NOT NULL' AS Script
+        FROM 
+            Financial.sys.tables t
+                INNER JOIN Financial.sys.schemas s ON t.schema_id=s.schema_id
+                INNER JOIN Financial.sys.key_constraints kc ON kc.parent_object_id=t.object_id AND kc.type='PK'
+                INNER JOIN Financial.sys.index_columns ic ON ic.object_id=kc.parent_object_id AND ic.index_id=kc.unique_index_id
+                INNER JOIN Financial.sys.columns c ON c.object_id=t.object_id AND c.column_id=ic.column_id
+                INNER JOIN Financial.sys.types tp ON c.user_type_id=tp.user_type_id;
+END TRY
+BEGIN CATCH
+    DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+    DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+    DECLARE @ErrorState INT = ERROR_STATE();
+    
+    RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+END CATCH

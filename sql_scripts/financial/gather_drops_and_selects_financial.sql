@@ -1,4 +1,4 @@
-DROP TABLE IF EXISTS ELPaso_TX.dbo.TablesToConvert_Financial;
+DROP TABLE IF EXISTS ${DB_NAME}.dbo.TablesToConvert_Financial;
 
 SELECT 
     'Financial' AS [DatabaseName],
@@ -23,9 +23,9 @@ SELECT
         ORDER BY c.column_id
         FOR XML PATH(''), TYPE
     ).value('.', 'NVARCHAR(MAX)'), 1, 2, '') + 
-    ' INTO ELPaso_TX.dbo.Financial_' + T.[NAME] + ' FROM Financial.' + QUOTENAME(s.[NAME]) + '.' + QUOTENAME(t.[NAME]) +
+    ' INTO ${DB_NAME}.dbo.Financial_' + T.[NAME] + ' FROM Financial.' + QUOTENAME(s.[NAME]) + '.' + QUOTENAME(t.[NAME]) +
     ' A WITH (NOLOCK) ' AS [Select_Into],
-	'DROP TABLE IF EXISTS ELPaso_TX.dbo.Financial_' + T.[NAME]  AS Drop_IfExists,
+	'DROP TABLE IF EXISTS ${DB_NAME}.dbo.Financial_' + T.[NAME]  AS Drop_IfExists,
 	'SELECT DISTINCT A' + 
     STUFF((
         SELECT ',' + 
@@ -44,7 +44,7 @@ SELECT
       + ' FROM Financial.' + QUOTENAME(s.[NAME]) + '.' + QUOTENAME(t.[NAME]) +
     ' A WITH (NOLOCK) WHERE 1=0' AS Select_Only,
 	CAST('' AS VARCHAR(8000)) AS Joins
-INTO ELPaso_TX.dbo.TablesToConvert_Financial
+INTO ${DB_NAME}.dbo.TablesToConvert_Financial
 FROM 
     Financial.sys.tables t
 		INNER JOIN Financial.sys.schemas s ON t.schema_id=s.schema_id
@@ -56,4 +56,4 @@ WHERE
 ORDER BY 
     s.[NAME], t.[NAME];
 
-ALTER TABLE ELPaso_TX.dbo.TablesToConvert_Financial ADD RowID INT IDENTITY(1,1);
+ALTER TABLE ${DB_NAME}.dbo.TablesToConvert_Financial ADD RowID INT IDENTITY(1,1);

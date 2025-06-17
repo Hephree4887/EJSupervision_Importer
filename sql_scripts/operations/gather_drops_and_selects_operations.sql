@@ -1,4 +1,4 @@
-DROP TABLE IF EXISTS ELPaso_TX.dbo.TablesToConvert_Operations;
+DROP TABLE IF EXISTS ${DB_NAME}.dbo.TablesToConvert_Operations;
 
 SELECT 
     'Operations' AS [DatabaseName],
@@ -23,9 +23,9 @@ SELECT
         ORDER BY c.column_id
         FOR XML PATH(''), TYPE
     ).value('.', 'NVARCHAR(MAX)'), 1, 2, '') + 
-    ' INTO ELPaso_TX.dbo.Operations_' + T.[NAME] + ' FROM Operations.' + QUOTENAME(s.[NAME]) + '.' + QUOTENAME(t.[NAME]) +
+    ' INTO ${DB_NAME}.dbo.Operations_' + T.[NAME] + ' FROM Operations.' + QUOTENAME(s.[NAME]) + '.' + QUOTENAME(t.[NAME]) +
     ' A WITH (NOLOCK) ' AS [Select_Into],
-	'DROP TABLE IF EXISTS ELPaso_TX.dbo.Operations_' + T.[NAME]  AS Drop_IfExists,
+	'DROP TABLE IF EXISTS ${DB_NAME}.dbo.Operations_' + T.[NAME]  AS Drop_IfExists,
 	'SELECT DISTINCT A' + 
     STUFF((
         SELECT ',' + 
@@ -44,7 +44,7 @@ SELECT
       + ' FROM Operations.' + QUOTENAME(s.[NAME]) + '.' + QUOTENAME(t.[NAME]) +
     ' A WITH (NOLOCK) WHERE 1=0' AS Select_Only,
 	CAST('' AS VARCHAR(8000)) AS Joins
-INTO ELPaso_TX.dbo.TablesToConvert_Operations
+INTO ${DB_NAME}.dbo.TablesToConvert_Operations
 FROM 
     Operations.sys.tables t
 		INNER JOIN Operations.sys.schemas s ON t.schema_id=s.schema_id
@@ -56,4 +56,4 @@ WHERE
 ORDER BY 
     s.[NAME], t.[NAME];
 
-ALTER TABLE ELPaso_TX.dbo.TablesToConvert_Operations ADD RowID INT IDENTITY(1,1);
+ALTER TABLE ${DB_NAME}.dbo.TablesToConvert_Operations ADD RowID INT IDENTITY(1,1);

@@ -2,7 +2,7 @@
 		SELECT DISTINCT 
 			 P.PartyID
 			,TypeOfParty	='Supervision Defendant'
-		INTO ElPaso_TX.DBO.PartiesToConvert
+		INTO ${DB_NAME}.DBO.PartiesToConvert
 		FROM
 			Justice.DBO.SupCaseHdr S
 				INNER JOIN Justice.DBO.PARTY P WITH (NOLOCK) ON S.DefendantPartyID=P.PartyID
@@ -61,7 +61,7 @@
 		   Justice.DBO.School su 
 				INNER JOIN Justice.DBO.Party s ON su.SchoolID=s.PartyID;
 ---------------------------------------------------------------------------------------------------
-	ALTER TABLE ElPaso_TX.DBO.PartiesToConvert ALTER COLUMN PartyID INT NOT NULL;
-	ALTER TABLE ElPaso_TX.DBO.PartiesToConvert ALTER COLUMN TypeOfParty VARCHAR(50) NOT NULL;
-	ALTER TABLE ElPaso_TX.DBO.PartiesToConvert ADD CONSTRAINT PartyID PRIMARY KEY (PartyID,TypeOfParty);
+	ALTER TABLE ${DB_NAME}.DBO.PartiesToConvert ALTER COLUMN PartyID INT NOT NULL;
+	ALTER TABLE ${DB_NAME}.DBO.PartiesToConvert ALTER COLUMN TypeOfParty VARCHAR(50) NOT NULL;
+	ALTER TABLE ${DB_NAME}.DBO.PartiesToConvert ADD CONSTRAINT PartyID PRIMARY KEY (PartyID,TypeOfParty);
 ---------------------------------------------------------------------------------------------------
