@@ -1,14 +1,1 @@
-[2025-06-16 18:22:14] Traceback (most recent call last):
-  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\etl\base_importer.py", line 401, in run
-    self.execute_preprocessing(target_conn)
-  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\02_OperationsDB_Import.py", line 83, in execute_preprocessing
-    for step in self.safe_tqdm(steps, desc="SQL Script Progress", unit="step"):
-AttributeError: 'OperationsDBImporter' object has no attribute 'safe_tqdm'
-
-[2025-06-16 18:23:13] Traceback (most recent call last):
-  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\etl\base_importer.py", line 401, in run
-    self.execute_preprocessing(target_conn)
-  File "C:\Users\jeff.reichert\source\repos\EJSupervision_Importer\02_OperationsDB_Import.py", line 83, in execute_preprocessing
-    for step in self.safe_tqdm(steps, desc="SQL Script Progress", unit="step"):
-AttributeError: 'OperationsDBImporter' object has no attribute 'safe_tqdm'
-
+[2025-06-17 07:56:58] Error running primary key script: SQL execution failed for create_primarykeys_operations: ('42S02', "[42S02] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Invalid object name 'ELPaso_TX.dbo.PrimaryKeyScripts_Operations'. (208) (SQLExecDirectW)")

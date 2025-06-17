@@ -44,6 +44,13 @@ class BaseDBImporter:
         """Initialize the importer with default values."""
         self.config = None
         self.db_name = None
+        # List of tables that should always be processed even if empty
+        self.always_process_tables = [
+            "Bond", "ClkCaseHdr", "SupClinicalScreening", "CrimDispEvent", "Event",
+            "HearingEvent", "SupNeedsAssessment", "table8", "Party", "PleaEvent",
+            "Interview", "SupPartyPSI", "SupPartyReferral", "SupRiskAssessment", "SentenceEvent",
+            "SupervisionRec", "SupContact", "Wrnt"
+        ]
 
     def parse_args(self) -> argparse.Namespace:
         """Parse command line arguments - implement in subclasses."""
@@ -187,10 +194,10 @@ class BaseDBImporter:
                                 failed_tables += 1
                                 continue
 
-                            # Skip empty tables unless configured to include them
+                            # Skip empty tables unless configured to include them or table is in special list
                             if not self.config['include_empty_tables'] and (
                                 scope_row_count is None or int(scope_row_count) <= 0
-                            ):
+                            ) and table_name not in self.always_process_tables:
                                 logger.info(
                                     f"Skipping Select INTO for {full_table_name}: scope_row_count is {scope_row_count}"
                                 )
@@ -267,7 +274,39 @@ class BaseDBImporter:
         pk_script_name = f"create_primarykeys_{self.DB_TYPE.lower()}" if self.DB_TYPE != 'Justice' else 'create_primarykeys'
         pk_sql = load_sql(f'{self.DB_TYPE.lower()}/{pk_script_name}.sql', self.db_name)
         
-        run_sql_script(conn, pk_script_name, pk_sql, timeout=self.config['sql_timeout'])
+        try:
+            # This is line 277 in your original code
+            run_sql_script(conn, pk_script_name, pk_sql, timeout=self.config['sql_timeout'])
+            
+            # Verify the table was created
+            with conn.cursor() as cursor:
+                cursor.execute(f"IF OBJECT_ID('{self.db_name}.dbo.{pk_table}', 'U') IS NULL SELECT 0 ELSE SELECT 1")
+                exists = cursor.fetchval()
+                
+                if exists:
+                    logger.info(f"PrimaryKeyScripts table created successfully")
+                    # Show message box for successful execution
+                    root = tk.Tk()
+                    root.withdraw()
+                    messagebox.showinfo("Success", f"Primary key script executed successfully.\nTable {self.db_name}.dbo.{pk_table} was created.")
+                    root.destroy()
+                else:
+                    logger.error(f"Primary key script executed but table {self.db_name}.dbo.{pk_table} was not created")
+                    root = tk.Tk()
+                    root.withdraw()
+                    messagebox.showwarning("Warning", f"Primary key script executed but table {self.db_name}.dbo.{pk_table} was not created")
+                    root.destroy()
+        except Exception as e:
+            error_msg = f"Error running primary key script: {str(e)}"
+            logger.error(error_msg)
+            log_exception_to_file(error_msg, log_file)
+            
+            # Show error message box
+            root = tk.Tk()
+            root.withdraw()
+            messagebox.showerror("Error", f"Failed to execute primary key script:\n{str(e)}")
+            root.destroy()
+            raise
 
         db_name = validate_sql_identifier(self.db_name)
         
@@ -326,7 +365,13 @@ class BaseDBImporter:
 
                 # Fix the condition logic to properly handle empty tables
                 should_process = False
-                if scope_row_count is None:
+                
+                # Always process tables in our special list
+                if table_name in self.always_process_tables:
+                    logger.debug(f"Checking {full_table_name}: in always_process_tables list")
+                    should_process = True
+                # Otherwise use standard empty table logic
+                elif scope_row_count is None:
                     logger.debug(f"Checking {full_table_name}: scope_row_count is None")
                     should_process = self.config['include_empty_tables']
                 elif scope_row_count > 0:
