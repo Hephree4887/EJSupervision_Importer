@@ -59,6 +59,7 @@
     <Content Include=".env" />
     <Content Include="code_review_suggestions.txt" />
     <Content Include="config\values.json" />
+    <Content Include="EJImporter.spec" />
     <Content Include="LICENSE" />
     <Content Include="README.md" />
     <Content Include="requirements.txt" />
