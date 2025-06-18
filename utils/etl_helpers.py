@@ -240,6 +240,64 @@ def run_sql_script(
         record_failure()
         raise SQLExecutionError(sql, e, table_name=name)
 
+def run_sql_script_with_go(
+    conn: Any, 
+    script_name: str, 
+    script: str, 
+    timeout: int = ETLConstants.DEFAULT_SQL_TIMEOUT
+) -> None:
+    """Execute SQL script that contains GO batch separators with proper semicolon handling.
+    
+    Args:
+        conn: Database connection
+        script_name: Name of the script for logging
+        script: SQL script text with GO separators
+        timeout: Query timeout in seconds
+    """
+    logger.info(f"Starting script: {script_name}")
+    start_time = time.time()
+    
+    try:
+        with conn.cursor() as cursor:
+            # Set the query timeout
+            cursor.execute(f"SET LOCK_TIMEOUT {timeout * 1000}")  # Convert to milliseconds
+            
+            # Split the script by GO statements (respecting line boundaries)
+            import re
+            batches = re.split(r'^\s*GO\s*$', script, flags=re.MULTILINE)
+            
+            batch_count = 0
+            for i, batch in enumerate(batches):
+                batch = batch.strip()
+                if not batch:  # Skip empty batches
+                    continue
+                
+                batch_count += 1
+                try:
+                    cursor.execute(batch)
+                    logger.info(f"Executed batch {i+1}/{len(batches)} in script {script_name}")
+                except Exception as e:
+                    logger.error(f"Error executing batch {i+1} in script {script_name}: {str(e)}")
+                    logger.error(f"Batch content: {batch[:200]}...")
+                    raise SQLExecutionError(batch, e, table_name=script_name)
+            
+            # Commit once at the end of the entire script
+            conn.commit()
+            
+        elapsed = time.time() - start_time
+        logger.info(f"Completed script: {script_name} - executed {batch_count} batches in {elapsed:.2f} seconds")
+        record_success()
+    except SQLExecutionError:
+        conn.rollback()  # Rollback on error
+        raise
+    except Exception as e:
+        elapsed = time.time() - start_time
+        logger.error(f"Error in script {script_name}: {e}")
+        logger.info(f"Script {script_name} failed after {elapsed:.2f} seconds")
+        conn.rollback()  # Rollback on error
+        record_failure()
+        raise SQLExecutionError(script, e, table_name=script_name)
+
 def execute_sql_with_timeout(
     conn: Any,
     sql: str,

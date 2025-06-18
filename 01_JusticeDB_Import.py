@@ -114,6 +114,9 @@ class JusticeDBImporter(BaseDBImporter):
             An iterable with a progress bar if possible, otherwise the original iterable
         """
         try:
+            # Add custom bar_format to remove timing information
+            kwargs['bar_format'] = '{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}'
+            
             # Use the imported tqdm to create a progress bar
             return tqdm(iterable, **kwargs)
         except Exception as e:

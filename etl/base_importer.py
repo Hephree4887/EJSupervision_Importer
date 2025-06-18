@@ -20,6 +20,7 @@ from utils.etl_helpers import (
     log_exception_to_file,
     run_sql_step_with_retry,
     transaction_scope,
+    run_sql_script_with_go,
 )
 from etl.core import (
     sanitize_sql,
@@ -274,18 +275,11 @@ class BaseDBImporter:
         pk_script_name = f"create_primarykeys_{self.DB_TYPE.lower()}" if self.DB_TYPE != 'Justice' else 'create_primarykeys'
         pk_sql = load_sql(f'{self.DB_TYPE.lower()}/{pk_script_name}.sql', self.db_name)
         
-        # First check if the table already exists (it shouldn't)
-        with conn.cursor() as cursor:
-            cursor.execute(f"IF OBJECT_ID('{self.db_name}.dbo.{pk_table}', 'U') IS NULL SELECT 0 ELSE SELECT 1")
-            exists_before = cursor.fetchval()
-            
-            if exists_before:
-                logger.info(f"PrimaryKeyScripts table ({self.db_name}.dbo.{pk_table}) already exists - will be recreated by script")
-                
-        # Try to execute the script that should create the table
+        # Use the new function for running scripts with GO statements
         try:
-            logger.info(f"Executing primary key script: {pk_script_name}")
-            run_sql_script(conn, pk_script_name, pk_sql, timeout=self.config['sql_timeout'])
+            logger.info(f"Executing primary key script with GO statements")
+            from utils.etl_helpers import run_sql_script_with_go
+            run_sql_script_with_go(conn, pk_script_name, pk_sql, timeout=self.config['sql_timeout'])
             
             # Check if the table was created successfully
             with conn.cursor() as cursor:

@@ -1,1 +1,0 @@
-[2025-06-17 16:54:12] Error running primary key script: SQL execution failed for create_primarykeys: ('42000', "[42000] [Microsoft][ODBC Driver 17 for SQL Server][SQL Server]Incorrect syntax near 'PrimaryKeyScripts'. (102) (SQLExecDirectW)")

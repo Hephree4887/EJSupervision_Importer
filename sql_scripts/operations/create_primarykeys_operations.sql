@@ -1,7 +1,7 @@
 BEGIN TRY
     -- Drop and recreate the table in a single transaction
     DROP TABLE IF EXISTS ${DB_NAME}.dbo.PrimaryKeyScripts_Operations;
-        
+GO        
     CREATE TABLE ${DB_NAME}.dbo.PrimaryKeyScripts_Operations
     (
          ScriptType NVARCHAR(50)-- 'PK' or 'NOT_NULL'
@@ -10,7 +10,7 @@ BEGIN TRY
         ,TableName SYSNAME
         ,Script NVARCHAR(MAX)
     );
-    
+GO    
     -- Insert PK scripts
     INSERT INTO ${DB_NAME}.dbo.PrimaryKeyScripts_Operations (ScriptType,DatabaseName,SchemaName,TableName,Script)
         SELECT 'PK','${DB_NAME}',S.[NAME],T.[NAME],
@@ -19,7 +19,7 @@ BEGIN TRY
             Operations.sys.tables t
                 INNER JOIN Operations.sys.schemas s ON t.schema_id=s.schema_id
                 INNER JOIN Operations.sys.key_constraints kc ON kc.parent_object_id=t.object_id AND kc.type='PK';
-
+GO
     -- Insert NOT NULL constraints
     INSERT INTO ${DB_NAME}.dbo.PrimaryKeyScripts_Operations (ScriptType,DatabaseName,SchemaName,TableName,Script)
         SELECT 'NOT_NULL','${DB_NAME}',S.[NAME],T.[NAME],
@@ -31,6 +31,7 @@ BEGIN TRY
                 INNER JOIN Operations.sys.index_columns ic ON ic.object_id=kc.parent_object_id AND ic.index_id=kc.unique_index_id
                 INNER JOIN Operations.sys.columns c ON c.object_id=t.object_id AND c.column_id=ic.column_id
                 INNER JOIN Operations.sys.types tp ON c.user_type_id=tp.user_type_id;
+GO
 END TRY
 BEGIN CATCH
     DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();

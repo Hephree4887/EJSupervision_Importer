@@ -1,7 +1,15 @@
+-- First batch
 BEGIN TRY
-    -- Drop and recreate the table in a single transaction
     DROP TABLE IF EXISTS ${DB_NAME}.dbo.PrimaryKeyScripts_Financial;
-        
+END TRY
+BEGIN CATCH
+    DECLARE @ErrorMessage1 NVARCHAR(4000) = ERROR_MESSAGE();
+    RAISERROR(@ErrorMessage1, 16, 1);
+END CATCH
+GO
+    
+-- Second batch
+BEGIN TRY
     CREATE TABLE ${DB_NAME}.dbo.PrimaryKeyScripts_Financial
     (
          ScriptType NVARCHAR(50)-- 'PK' or 'NOT_NULL'
@@ -10,7 +18,15 @@ BEGIN TRY
         ,TableName SYSNAME
         ,Script NVARCHAR(MAX)
     );
+END TRY
+BEGIN CATCH
+    DECLARE @ErrorMessage2 NVARCHAR(4000) = ERROR_MESSAGE();
+    RAISERROR(@ErrorMessage2, 16, 1);
+END CATCH
+GO
     
+-- Third batch
+BEGIN TRY
     -- Insert PK scripts
     INSERT INTO ${DB_NAME}.dbo.PrimaryKeyScripts_Financial (ScriptType,DatabaseName,SchemaName,TableName,Script)
         SELECT 'PK','${DB_NAME}',S.[NAME],T.[NAME],
@@ -19,7 +35,15 @@ BEGIN TRY
             Financial.sys.tables t
                 INNER JOIN Financial.sys.schemas s ON t.schema_id=s.schema_id
                 INNER JOIN Financial.sys.key_constraints kc ON kc.parent_object_id=t.object_id AND kc.type='PK';
+END TRY
+BEGIN CATCH
+    DECLARE @ErrorMessage3 NVARCHAR(4000) = ERROR_MESSAGE();
+    RAISERROR(@ErrorMessage3, 16, 1);
+END CATCH
+GO
 
+-- Fourth batch
+BEGIN TRY
     -- Insert NOT NULL constraints
     INSERT INTO ${DB_NAME}.dbo.PrimaryKeyScripts_Financial (ScriptType,DatabaseName,SchemaName,TableName,Script)
         SELECT 'NOT_NULL','${DB_NAME}',S.[NAME],T.[NAME],
@@ -33,9 +57,7 @@ BEGIN TRY
                 INNER JOIN Financial.sys.types tp ON c.user_type_id=tp.user_type_id;
 END TRY
 BEGIN CATCH
-    DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
-    DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
-    DECLARE @ErrorState INT = ERROR_STATE();
-    
-    RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+    DECLARE @ErrorMessage4 NVARCHAR(4000) = ERROR_MESSAGE();
+    RAISERROR(@ErrorMessage4, 16, 1);
 END CATCH
+GO
