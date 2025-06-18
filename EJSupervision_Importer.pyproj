@@ -35,6 +35,7 @@
     <Compile Include="db\__init__.py" />
     <Compile Include="etl\core.py" />
     <Compile Include="etl\__init__.py" />
+    <Compile Include="hooks\hook-pyodbc.py" />
     <Compile Include="run_etl.py" />
     <Compile Include="tests\test_mssql.py" />
     <Compile Include="tests\test_mysql.py" />
@@ -47,6 +48,7 @@
     <Folder Include="db\" />
     <Folder Include="config\" />
     <Folder Include="etl\" />
+    <Folder Include="hooks\" />
     <Folder Include="sql_scripts\" />
     <Folder Include="sql_scripts\financial\" />
     <Folder Include="sql_scripts\justice\" />
@@ -57,12 +59,13 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include=".env" />
+    <Content Include="build.bat" />
     <Content Include="code_review_suggestions.txt" />
     <Content Include="config\values.json" />
-    <Content Include="EJImporter.spec" />
     <Content Include="LICENSE" />
     <Content Include="README.md" />
     <Content Include="requirements.txt" />
+    <Content Include="run_etl.spec" />
     <Content Include="sql_scripts\financial\create_primarykeys_financial.sql" />
     <Content Include="sql_scripts\financial\gather_drops_and_selects_financial.sql" />
     <Content Include="sql_scripts\financial\gather_feeinstanceids.sql" />
